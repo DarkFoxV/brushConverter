@@ -1,11 +1,11 @@
-"""Photoshop PackBits RLE 解码。
+"""Photoshop PackBits RLE decoding.
 
-数据布局（与 PSD 图像通道一致）：
-- 先是 height 个 int16（大端）的每行压缩长度
-- 随后是各行独立的 PackBits 流：
-  * n 为有符号字节；n >= 0：后面 n+1 个字节为字面量
-  * n < 0（n != -128）：后 1 个字节重复 -n+1 次
-  * n == -128：无操作
+Data layout (same as PSD image channels):
+- first, height int16 (big-endian) compressed lengths, one per row
+- then an independent PackBits stream per row:
+  * n is a signed byte; n >= 0: the next n+1 bytes are literals
+  * n < 0 (n != -128): the next 1 byte is repeated -n+1 times
+  * n == -128: no-op
 """
 
 from __future__ import annotations
@@ -16,16 +16,16 @@ import numpy as np
 
 
 def rle_decode(buf: memoryview | bytes, expected_size: int, height: int) -> np.ndarray:
-    """解码 ABR 采样笔尖的 RLE 数据。
+    """Decode RLE data of ABR sampled brush tips.
 
     Parameters
     ----------
-    buf : 压缩数据（含行长度表）
-    expected_size : 解压后总字节数（width * height * bytes_per_pixel）
-    height : 扫描行数
+    buf : compressed data (including the row length table)
+    expected_size : total byte count after decompression (width * height * bytes_per_pixel)
+    height : number of scan lines
     Returns
     -------
-    np.ndarray : uint8 一维数组，长度 expected_size
+    np.ndarray : one-dimensional uint8 array of length expected_size
     """
     counts = struct.unpack_from(f">{height}h", buf, 0)
     offset = height * 2
@@ -33,10 +33,10 @@ def rle_decode(buf: memoryview | bytes, expected_size: int, height: int) -> np.n
     pos = 0
     for line_len in counts:
         if line_len <= 0:
-            raise ValueError(f"非法扫描行长度: {line_len}")
+            raise ValueError(f"Invalid scanline length: {line_len}")
         line_end = offset + line_len
         if line_end > len(buf):
-            raise ValueError("RLE 数据被截断")
+            raise ValueError("RLE data truncated")
         j = offset
         while j < line_end:
             n = buf[j]
@@ -48,19 +48,19 @@ def rle_decode(buf: memoryview | bytes, expected_size: int, height: int) -> np.n
                     continue
                 run = -n + 1
                 if j + 1 > line_end or pos + run > expected_size:
-                    raise ValueError("RLE 解码越界（重复段）")
+                    raise ValueError("RLE decode out of bounds (repeat run)")
                 out[pos : pos + run] = buf[j]
                 j += 1
                 pos += run
             else:
                 run = n + 1
                 if j + run > line_end or pos + run > expected_size:
-                    raise ValueError("RLE 解码越界（字面量段）")
+                    raise ValueError("RLE decode out of bounds (literal run)")
                 out[pos : pos + run] = np.frombuffer(
                     buf, dtype=np.uint8, count=run, offset=j)
                 j += run
                 pos += run
         offset = line_end
     if pos != expected_size:
-        raise ValueError(f"RLE 解码尺寸不符: 得到 {pos}, 期望 {expected_size}")
+        raise ValueError(f"RLE decoded size mismatch: got {pos}, expected {expected_size}")
     return out

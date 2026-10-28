@@ -1,4 +1,4 @@
-"""ABR 文件级读取：头部 + 8BIM 区段遍历。"""
+"""ABR file-level reading: header + 8BIM section traversal."""
 
 from __future__ import annotations
 
@@ -12,32 +12,32 @@ from .samples import BrushTip, parse_samples
 
 @dataclass
 class AbrSection:
-    """一个 8BIM 区段的原始数据。"""
+    """Raw data of one 8BIM section."""
 
     key: str
-    offset: int  # 数据区起始位置（绝对）
+    offset: int  # start of the data area (absolute)
     length: int
     data: bytes
 
 
 @dataclass
 class AbrFile:
-    """解析后的 ABR 文件。
+    """Parsed ABR file.
 
     Attributes
     ----------
-    version : 主版本（1/2 旧格式，6/10 新格式）
-    subversion : 旧格式中为笔刷数量；新格式中为子版本（1 或 2）
+    version : major version (1/2 old format, 6/10 new format)
+    subversion : brush count in the old format; sub-version (1 or 2) in the new format
     sections : {key: AbrSection}
-    tips : samp 区解析出的采样笔尖列表
+    tips : sampled brush tip list parsed from the samp section
     """
 
     version: int
     subversion: int
     sections: dict[str, AbrSection] = field(default_factory=dict)
     tips: list[BrushTip] = field(default_factory=list)
-    patterns: dict[str, PatternTexture] = field(default_factory=dict)  # patt 纹理 {uuid: PatternTexture}
-    name: str = ""  # 文件名（不含扩展名）
+    patterns: dict[str, PatternTexture] = field(default_factory=dict)  # patt textures {uuid: PatternTexture}
+    name: str = ""  # file name (without extension)
 
     @classmethod
     def parse(cls, path: str | os.PathLike) -> "AbrFile":
@@ -50,7 +50,7 @@ class AbrFile:
     @classmethod
     def _from_bytes(cls, data: bytes, base_name: str) -> "AbrFile":
         if len(data) < 4:
-            raise ValueError("文件过小，不是 ABR")
+            raise ValueError("File too small, not an ABR")
         version, subversion = struct.unpack_from(">HH", data, 0)
 
         sections: dict[str, AbrSection] = {}
@@ -63,7 +63,7 @@ class AbrFile:
                 (length,) = struct.unpack_from(">I", data, pos + 8)
                 start = pos + 12
                 if start + length > len(data):
-                    length = len(data) - start  # 最后一段可能无填充
+                    length = len(data) - start  # the last section may have no padding
                 sections[key.decode("latin1")] = AbrSection(
                     key=key.decode("latin1"), offset=start, length=length,
                     data=data[start : start + length],
@@ -91,10 +91,10 @@ class AbrFile:
 
     def summary(self) -> str:
         lines = [
-            f"版本: {self.version}.{self.subversion}",
-            f"区段: {', '.join(f'{k}({v.length}B)' for k, v in self.sections.items()) or '(旧格式无区段)'}",
-            f"采样笔尖: {len(self.tips)} 个",
-            f"纹理图案: {len(self.patterns)} 个",
+            f"Version: {self.version}.{self.subversion}",
+            f"Sections: {', '.join(f'{k}({v.length}B)' for k, v in self.sections.items()) or '(old format, no sections)'}",
+            f"Sampled tips: {len(self.tips)}",
+            f"Texture patterns: {len(self.patterns)}",
         ]
         for t in self.tips:
             name = t.uuid or t.name or ""

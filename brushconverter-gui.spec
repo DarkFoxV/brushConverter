@@ -1,11 +1,11 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""brushConverter GUI 打包配置（PyInstaller --onedir）。
+"""brushConverter GUI packaging config (PyInstaller --onedir).
 
-用法（在项目根目录）:
+Usage (from the project root):
     pyinstaller brushconverter-gui.spec
 
-入口 brushConverter_gui_entry.py 避免了 gui/__main__.py 里的
-sys.path 注入（打包后路径已无效，但保留无害）。
+Entry point brushConverter_gui_entry.py avoids the sys.path injection in
+gui/__main__.py (the path is invalid after packaging but harmless to keep).
 """
 block_cipher = None
 

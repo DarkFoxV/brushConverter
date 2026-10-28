@@ -1,6 +1,6 @@
-"""brushConverter GUI 入口。
+"""brushConverter GUI entry point.
 
-用法:
+Usage:
     python -m gui
 """
 
@@ -9,7 +9,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-# 让 gui 包能 import src/brush_converter
+# Let the gui package import src/brush_converter
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from .main_window import main  # noqa: E402

@@ -1,27 +1,27 @@
-"""Photoshop 描述符（Descriptor）解析。
+"""Photoshop Descriptor parsing.
 
-ABR 的 desc 区段使用 Photoshop 的二进制描述符格式（与 PSD/ASL 一致）。
-结构参考 Adobe Photoshop File Formats Specification 的 "Descriptor Structure"，
-以及开源实现 SonyStone/ABR-Viewer（MIT）。
+The ABR desc section uses Photoshop's binary descriptor format (same as PSD/ASL).
+Structure references the "Descriptor Structure" of the Adobe Photoshop File
+Formats Specification, plus the open-source implementation SonyStone/ABR-Viewer (MIT).
 
-顶层 desc 块布局：
-    u32  version（值被忽略）
+Top-level desc block layout:
+    u32  version (value ignored)
     Descriptor { unicode name, classID, itemCount, items[] }
 
-Descriptor / Objc：
-    unicode string : name（u32 字符数 + 每个 2 字节 UTF-16BE）
-    id             : classID（u32 len；0 → 4 字节四字符码，否则 len 字节 ASCII）
+Descriptor / Objc:
+    unicode string : name (u32 character count + 2-byte UTF-16BE each)
+    id             : classID (u32 len; 0 -> 4-byte four-char code, otherwise len bytes ASCII)
     u32            : itemCount
-    items[]        : { key: id, type: 4 字符码, value }
+    items[]        : { key: id, type: 4-char code, value }
 
-key / id 读法（readId）：u32 len；0 → 后 4 字节为四字符码；否则 len 字节 ASCII。
+key / id reading (readId): u32 len; 0 -> the next 4 bytes are a four-char code; otherwise len bytes ASCII.
 
-value 类型（type 四字符码）：
-    'long'  int32          'doub'  float64        'bool'  1 字节
-    'TEXT'  unicode string 'enum'  typeId+value   'UntF'  4 字节单位 + float64
-    'Objc'  Descriptor     'VlLs'  值列表         'tdta'  u32 len + 原始字节
-    'alis'  u32 len + 原始字节
-    'obj '  / 'GlbO' / 'comp' / 'Glbc' 等：不常用，按规则跳过
+value types (type four-char code):
+    'long'  int32          'doub'  float64        'bool'  1 byte
+    'TEXT'  unicode string 'enum'  typeId+value   'UntF'  4-byte unit + float64
+    'Objc'  Descriptor     'VlLs'  value list     'tdta'  u32 len + raw bytes
+    'alis'  u32 len + raw bytes
+    'obj '  / 'GlbO' / 'comp' / 'Glbc' etc.: rarely used, skipped per the rules
 """
 
 from __future__ import annotations
@@ -38,12 +38,12 @@ class DescParseError(ValueError):
 class Value:
     type: str
     value: object = None
-    unit: str | None = None      # UntF 单位
-    type_id: str | None = None   # enum 的类型 id
-    class_id: str | None = None  # Objc 的 classId
-    data: bytes | None = None    # tdta/alis 原始数据
+    unit: str | None = None      # UntF unit
+    type_id: str | None = None   # enum's type id
+    class_id: str | None = None  # Objc's classId
+    data: bytes | None = None    # tdta/alis raw data
 
-    def __repr__(self) -> str:  # 便于调试
+    def __repr__(self) -> str:  # for debugging
         if self.type == "Objc":
             return f"<Objc {self.class_id} keys={list(self.value.keys()) if isinstance(self.value, dict) else '?'}>"
         if self.type == "VlLs":
@@ -68,7 +68,7 @@ class Reader:
 
     def _need(self, n: int) -> None:
         if self.pos + n > self.end:
-            raise DescParseError(f"描述符越界: 需要 {n} 字节, 剩 {self.remaining()} @ {self.pos}")
+            raise DescParseError(f"Descriptor out of bounds: need {n} bytes, {self.remaining()} remaining @ {self.pos}")
 
     def u8(self) -> int:
         self._need(1)
@@ -166,12 +166,12 @@ class Reader:
             self.read_id()          # classId
             self.read_unicode()     # name
             return Value("comp", None)
-        # 未知类型：无法确定长度，抛错以便定位
-        raise DescParseError(f"未知描述符类型: {typ!r} @ {self.pos - 4}")
+        # unknown type: length cannot be determined, raise to help locate it
+        raise DescParseError(f"Unknown descriptor type: {typ!r} @ {self.pos - 4}")
 
 
 def _skip_object_reference(r: Reader) -> None:
-    """跳过 'obj ' 类型的对象引用（不常用，仅需正确定位长度）。"""
+    """Skip 'obj ' type object references (rarely used; only need to locate lengths correctly)."""
     count = r.u32()
     for _ in range(count):
         ref = r.raw(4).decode("latin1")
@@ -192,21 +192,21 @@ def _skip_object_reference(r: Reader) -> None:
 
 
 def _skip_global_object(r: Reader) -> None:
-    """跳过 'GlbO'/'Glbc' 全局对象（描述符 + classID）。"""
+    """Skip 'GlbO'/'Glbc' global objects (descriptor + classID)."""
     r.read_descriptor()
     r.read_id()  # classID
 
 
 def parse_descriptor_block(data: bytes) -> dict[str, Value]:
-    """解析完整 desc 区段（含 4 字节 version 前缀），返回顶层描述符。"""
+    """Parse a complete desc section (including the 4-byte version prefix), returning the top-level descriptor."""
     r = Reader(data)
-    version = r.u32()  # 值被忽略
+    version = r.u32()  # value ignored
     desc = r.read_descriptor()
     return desc
 
 
 def iter_brush_presets(desc: dict[str, Value]) -> list[dict[str, Value]]:
-    """从顶层描述符提取笔刷预设列表（'Brsh' → VlLs → Objc）。"""
+    """Extract the brush preset list from the top-level descriptor ('Brsh' -> VlLs -> Objc)."""
     brsh = desc.get("Brsh")
     if brsh is None or brsh.type != "VlLs":
         return []

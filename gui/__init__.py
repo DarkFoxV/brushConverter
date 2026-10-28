@@ -1,4 +1,4 @@
-"""brushConverter 图形界面。"""
+"""brushConverter graphical interface."""
 
 from .main_window import MainWindow
 

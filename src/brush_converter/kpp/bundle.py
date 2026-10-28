@@ -1,10 +1,11 @@
-"""打包 Krita 资源包（.bundle）。
+"""Package a Krita resource bundle (.bundle).
 
-.bundle 是 ZIP 归档，布局（严格匹配 Krita KoResourceBundle 的写入格式）：
-    mimetype                        （首项、stored 不压缩，application/x-krita-resourcebundle）
-    META-INF/manifest.xml           （OpenDocument manifest 命名空间）
-    meta.xml                        （OpenDocument meta）
-    paintoppresets/*.kpp            （笔刷预设，自包含内嵌笔尖）
+A .bundle is a ZIP archive whose layout (strictly matching Krita's
+KoResourceBundle write format) is:
+    mimetype                        (first entry, stored uncompressed, application/x-krita-resourcebundle)
+    META-INF/manifest.xml           (OpenDocument manifest namespace)
+    meta.xml                        (OpenDocument meta)
+    paintoppresets/*.kpp            (brush presets, self-contained with embedded tip)
 """
 
 from __future__ import annotations
@@ -21,8 +22,13 @@ NS_DC = "http://purl.org/dc/elements/1.1"
 RES_TYPE = "paintoppresets"
 
 
-def _manifest_xml(entries: list[tuple[str, str]]) -> str:
-    """entries: [(filename, md5hex)]"""
+def _manifest_xml(entries: list[tuple[str, str]], tag: str | None = None) -> str:
+    """entries: [(filename, md5hex)]; tag: applied to every resource.
+
+    Krita reads a per-file-entry <manifest:tags><manifest:tag> element
+    (KoResourceBundleManifest::parseFileEntry) and registers each one in the
+    resource_tags cache on bundle import, so every brush shows the tag.
+    """
     lines = [
         '<?xml version="1.0" encoding="UTF-8"?>',
         f'<manifest:manifest xmlns:manifest="{NS_MANIFEST}" manifest:version="1.2">',
@@ -30,16 +36,20 @@ def _manifest_xml(entries: list[tuple[str, str]]) -> str:
         f'manifest:media-type="{MIMETYPE}"/>',
     ]
     for fname, md5 in entries:
-        lines.append(
+        entry = (
             f'<manifest:file-entry manifest:media-type="{RES_TYPE}" '
-            f'manifest:full-path="{RES_TYPE}/{fname}" manifest:md5sum="{md5}"/>'
+            f'manifest:full-path="{RES_TYPE}/{fname}" manifest:md5sum="{md5}">'
         )
+        if tag:
+            entry += f"<manifest:tags><manifest:tag>{escape(tag)}</manifest:tag></manifest:tags>"
+        entry += "</manifest:file-entry>"
+        lines.append(entry)
     lines.append("</manifest:manifest>")
     return "".join(lines)
 
 
 def _meta_xml(bundle_name: str) -> str:
-    """生成 OpenDocument meta.xml（资源包名称 / 版本 / 描述）。"""
+    """Generate the OpenDocument meta.xml (bundle name / version / description)."""
     name = escape(bundle_name)
     return (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
@@ -54,13 +64,15 @@ def _meta_xml(bundle_name: str) -> str:
     )
 
 
-def write_bundle(bundle_path: str, kpp_files: list[tuple[str, bytes]]) -> str:
-    """把 .kpp 文件打包为 .bundle。
+def write_bundle(bundle_path: str, kpp_files: list[tuple[str, bytes]],
+                 tag: str | None = None) -> str:
+    """Package .kpp files into a .bundle.
 
     Parameters
     ----------
-    bundle_path : 输出 .bundle 路径
-    kpp_files : [(文件名, 文件字节)]，将放入 paintoppresets/ 目录
+    bundle_path : output .bundle path
+    kpp_files : [(filename, file bytes)], placed into the paintoppresets/ directory
+    tag : optional tag applied to every brush in the bundle (e.g. the source .abr stem)
     """
     name = Path(bundle_path).stem
     entries: list[tuple[str, str]] = []
@@ -69,7 +81,7 @@ def write_bundle(bundle_path: str, kpp_files: list[tuple[str, bytes]]) -> str:
 
     with zipfile.ZipFile(bundle_path, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr(zipfile.ZipInfo("mimetype"), MIMETYPE, compress_type=zipfile.ZIP_STORED)
-        zf.writestr("META-INF/manifest.xml", _manifest_xml(entries))
+        zf.writestr("META-INF/manifest.xml", _manifest_xml(entries, tag=tag))
         zf.writestr("meta.xml", _meta_xml(name))
         for fname, data in kpp_files:
             zf.writestr("paintoppresets/" + fname, data)

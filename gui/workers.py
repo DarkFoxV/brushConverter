@@ -1,4 +1,4 @@
-"""GUI 后台线程：解析 ABR 与执行转换，避免阻塞界面。"""
+"""GUI background threads: parse ABR and run conversion, to avoid blocking the UI."""
 
 from __future__ import annotations
 
@@ -12,29 +12,29 @@ from brush_converter.convert import convert_presets, ConvertResult
 
 
 class ParseWorker(QThread):
-    """后台解析 ABR 文件。"""
+    """Parse ABR file in the background."""
 
-    done = Signal(object, object)   # (abr, presets) 或 (None, 错误信息字符串)
+    done = Signal(object, object)   # (abr, presets) or (None, error message string)
 
     def __init__(self, path: str, parent=None):
         super().__init__(parent)
         self._path = path
 
     def run(self) -> None:
-        """线程体：解析 ABR + 映射预设，异常通过 done 信号回传。"""
+        """Thread body: parse ABR + map presets; exceptions reported via done signal."""
         try:
             abr = AbrFile.parse(self._path)
             presets = map_presets(abr)
             self.done.emit(abr, presets)
         except Exception as e:  # noqa: BLE001
             traceback.print_exc()
-            self.done.emit(None, f"解析失败：{e}")
+            self.done.emit(None, f"Parse failed: {e}")
 
 
 class ConvertWorker(QThread):
-    """后台转换选中预设。"""
+    """Convert selected presets in the background."""
 
-    done = Signal(object)    # ConvertResult 或 错误信息字符串
+    done = Signal(object)    # ConvertResult or error message string
 
     def __init__(self, abr: AbrFile, presets: list[BrushPreset], out_dir: str,
                  make_bundle: bool, make_standalone: bool, parent=None):
@@ -46,7 +46,7 @@ class ConvertWorker(QThread):
         self._make_standalone = make_standalone
 
     def run(self) -> None:
-        """线程体：转换选中预设，异常通过 done 信号回传。"""
+        """Thread body: convert selected presets; exceptions reported via done signal."""
         try:
             result = convert_presets(
                 self._abr, self._presets, self._out_dir,
@@ -56,4 +56,4 @@ class ConvertWorker(QThread):
             self.done.emit(result)
         except Exception as e:  # noqa: BLE001
             traceback.print_exc()
-            self.done.emit(f"转换失败：{e}")
+            self.done.emit(f"Conversion failed: {e}")

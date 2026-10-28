@@ -1,4 +1,4 @@
-"""Krita 纹理参数与内嵌资源生成测试（无需真实样本）。"""
+"""Krita texture parameters and embedded resource generation tests (no real sample needed)."""
 
 from __future__ import annotations
 
@@ -59,9 +59,9 @@ def test_texture_params_written():
 
 
 def test_texture_strength_constant_without_sensor():
-    # PS textureDepthDynamics.bVTy==0（深度无传感器）：Krita「效果强度」应
-    # 保持开启（PressureTexture/Strength/=true）但关闭曲线（UseCurve=false），
-    # 强度由 Value=textureDepth/100 恒定提供，而不是整体禁用该项。
+    # PS textureDepthDynamics.bVTy==0 (depth has no sensor): Krita "effect strength" should
+    # stay enabled (PressureTexture/Strength/=true) but with curve off (UseCurve=false),
+    # strength provided constantly by Value=textureDepth/100, instead of disabling the item.
     tex = TextureXml(
         pattern_filename="tex_abc12345.png",
         png_bytes=b"fake-png-bytes",
@@ -76,9 +76,10 @@ def test_texture_strength_constant_without_sensor():
 
 
 def test_rotation_random_without_sensor_keeps_option_enabled():
-    # PS angleDynamics.bVTy==0（无传感器）但 jitter>0：纯随机角度抖动。
-    # Krita「旋转」选项应开启（PressureRotation=true），用只有 fuzzy 的
-    # 传感器表达随机（不随笔迹方向，无 drawingangle），RotationValue=jitter/100。
+    # PS angleDynamics.bVTy==0 (no sensor) but jitter>0: pure random angle jitter.
+    # Krita "Rotation" option should be enabled (PressureRotation=true), using a fuzzy-only
+    # sensor to express randomness (not following stroke direction, no drawingangle),
+    # RotationValue=jitter/100.
     xml = build_preset_xml("random-rot", "", None, rotation_sensor=None, rotation_jitter=20.0)
     assert 'PressureRotation" type="internal">true' in xml
     assert 'RotationValue" type="internal">0.2' in xml
@@ -102,19 +103,19 @@ def test_texture_disabled_by_default():
 
 
 def test_convert_texture_xml_formulas():
-    # 亮/对比度/缩放换算 + 钳位；未知混合模式回退 Multiply(0)
+    # Brightness/contrast/scale conversion + clamping; unknown blend mode falls back to Multiply(0)
     img = np.zeros((4, 4, 3), dtype=np.uint8)
     ts = TextureSettings(
         name="x",
         uuid="12345678-0000-0000-0000-000000000000",
-        scale=2000.0,   # 2000% → clamp 10.0
+        scale=2000.0,   # 2000% → clamp to 10.0
         invert=True,
         brightness=-100,
         contrast=100,
         depth=55.0,
         depth_min=0.0,
         pressure=True,
-        blend_mode="Ovld",  # 不在映射表 → 0
+        blend_mode="Ovld",  # not in mapping table → 0
         image=img,
     )
     tex = _texture_xml(BrushPreset(name="x", texture=ts))
@@ -153,7 +154,7 @@ def test_photoshop_contrast_uses_modern_adjustment_factor():
 
 
 def test_linear_height_brightness_uses_common_mapping():
-    # Linear Height (Photoshop) 不再使用 0.30 基线：所有模式统一普通映射
+    # Linear Height (Photoshop) no longer uses a 0.30 baseline: all modes use the common mapping
     img = np.zeros((2, 2, 3), dtype=np.uint8)
     from brush_converter.mapping import TextureSettings
     tex = _texture_xml(BrushPreset(name="x", texture=TextureSettings(name="x", uuid="x", brightness=30, image=img, blend_mode="linearHeight")))
@@ -162,7 +163,7 @@ def test_linear_height_brightness_uses_common_mapping():
 
 
 def test_linear_height_contrast_uses_common_mapping():
-    # Linear Height (Photoshop) 不再反转对比度：所有模式统一 PS 中心因子
+    # Linear Height (Photoshop) no longer inverts contrast: all modes use the common PS centered factor
     img = np.zeros((2, 2, 3), dtype=np.uint8)
     from brush_converter.mapping import TextureSettings
     for value, expected in [(-50, 0.5), (-25, 0.75), (25, 4/3), (50, 2.0), (75, 2.0), (100, 2.0)]:

@@ -1,19 +1,22 @@
-"""ABR 描述符 → 笔刷预设参数的映射。
+"""Mapping of ABR descriptors → brush preset parameters.
 
-映射策略（对照用户手动转换的 Krita 5.x 参考预设逐项校准）：
-  - 尺寸：scale = Dmtr / 笔尖宽度（尊重 Photoshop 主直径）
-  - 间距 / 角度：直接映射
-  - 压感→大小：minimumDiameter（szVr.bVTy==2 压力）
-  - 压感→不透明度：opVr.Mnm（opVr.bVTy==2）
-  - 压感→流量：prVr.Mnm（prVr.bVTy==2）
-  - 压感→宽高比：minimumRoundness（roundnessDynamics.bVTy==2）
-  - 旋转：angleDynamics.bVTy==6 → 随笔迹方向（drawingangle）；jitter 作为 Krita RotationValue 效果强度，随机度曲线固定 ±180°
-  - 散布：useScatter → 启用开关；scatterDynamics.jitter → 散布量
-    （经验换算 ScatterValue = jitter/400，见 preset_xml.py 散布分支）
-    bVTy==2 → 压感控制，bVTy==0 → 恒定；bothAxes → 两轴
-  - 纹理：按 Krita 模式合成校准亮度/对比度；Linear Height (Photoshop) 使用独立基线
-    与反向对比度映射，Krita UI 数值按两位小数输出
-  - 计算笔刷 → Krita auto_brush
+Mapping strategy (calibrated item by item against Krita 5.x reference presets
+manually converted by the user):
+  - Size: scale = Dmtr / tip width (respects Photoshop's master diameter)
+  - Spacing / angle: mapped directly
+  - Pressure → size: minimumDiameter (szVr.bVTy==2 pressure)
+  - Pressure → opacity: opVr.Mnm (opVr.bVTy==2)
+  - Pressure → flow: prVr.Mnm (prVr.bVTy==2)
+  - Pressure → aspect ratio: minimumRoundness (roundnessDynamics.bVTy==2)
+  - Rotation: angleDynamics.bVTy==6 → follows stroke direction (drawingangle); jitter
+    becomes the Krita RotationValue effect strength, randomness curve fixed at ±180°
+  - Scatter: useScatter → enable switch; scatterDynamics.jitter → scatter amount
+    (empirical conversion ScatterValue = jitter/400, see the scatter branch in preset_xml.py)
+    bVTy==2 → pressure-controlled, bVTy==0 → constant; bothAxes → both axes
+  - Texture: brightness/contrast calibrated via Krita mode compositing; Linear Height
+    (Photoshop) uses a separate baseline and an inverted contrast mapping;
+    Krita UI values are output with two decimals
+  - Computed brushes → Krita auto_brush
 """
 
 from __future__ import annotations
@@ -26,10 +29,10 @@ from .abr import AbrFile
 from .abr import descriptors as D
 
 
-# Photoshop 纹理混合模式（enum BlnM 成员）→ Krita TexturingMode 数值。
-# 未列出的模式回退 Multiply(0)，并在警告里注明（见 _collect_warnings）。
+# Photoshop texture blend modes (enum BlnM members) → Krita TexturingMode values.
+# Unlisted modes fall back to Multiply(0), noted in the warning (see _collect_warnings).
 _TEXTURING_MODE = {
-    # Krita KisTextureOptionData::TexturingMode enum（Krita master/6.x）
+    # Krita KisTextureOptionData::TexturingMode enum (Krita master/6.x)
     "Mul ": 0,           # MULTIPLY
     "Sbtr": 1,           # SUBTRACT
     "Lght": 2,           # LIGHTNESS
@@ -42,10 +45,10 @@ _TEXTURING_MODE = {
     "LBur": 9,           # LINEAR_BURN
     "HdMx": 10,          # HARD_MIX_PHOTOSHOP
     "HdMxS": 11,         # HARD_MIX_SOFTER_PHOTOSHOP
-    "Hght": 14,          # HEIGHT_PHOTOSHOP（测试样本实际值）
-    "hardMix": 10,       # HARD_MIX_PHOTOSHOP（测试样本实际值）
-    # Photoshop 专用模式必须优先使用 Krita 的 (Photoshop) 项；
-    # ABR 的 linearHeight 即 Photoshop Linear Height。
+    "Hght": 14,          # HEIGHT_PHOTOSHOP (actual value from the test sample)
+    "hardMix": 10,       # HARD_MIX_PHOTOSHOP (actual value from the test sample)
+    # Photoshop-specific modes must preferentially use Krita's (Photoshop) entries;
+    # ABR's linearHeight is Photoshop's Linear Height.
     "linearHeight": 15,  # LINEAR_HEIGHT_PHOTOSHOP
     "height": 14,        # HEIGHT_PHOTOSHOP
     "linearHeightPhotoshop": 15,  # LINEAR_HEIGHT_PHOTOSHOP
@@ -56,36 +59,36 @@ _TEXTURING_MODE = {
 
 @dataclass
 class TextureSettings:
-    """一个笔刷预设的纹理设置（ABR desc 的纹理参数 + patt 位图）。
+    """Texture settings of one brush preset (texture parameters from the ABR desc + the patt bitmap).
 
-    scale/brightness/contrast/depth 为 Photoshop 原始语义：
-    scale: textureScale %（0..100）；brightness/contrast: -100..100；
-    depth: textureDepth %（0..100）。
+    scale/brightness/contrast/depth keep Photoshop's original semantics:
+    scale: textureScale % (0..100); brightness/contrast: -100..100;
+    depth: textureDepth % (0..100).
     """
 
     name: str
     uuid: str
     scale: float = 100.0
     invert: bool = False
-    brightness: int = 0       # Photoshop 纹理亮度：-150..150
-    contrast: int = 0         # Photoshop 纹理对比度：-50..100
+    brightness: int = 0       # Photoshop texture brightness: -150..150
+    contrast: int = 0         # Photoshop texture contrast: -50..100
     depth: float = 100.0
-    depth_min: float = 0.0      # 压感→深度曲线的最小值（textureDepthDynamics.Mnm）
-    pressure: bool = False      # 深度随压感（bVTy==2）
-    blend_mode: str = "Mul "    # PS 4CC 成员（'linearHeight' 等）
-    image: np.ndarray | None = None  # (h,w,3) RGB 或 (h,w) 灰度，来自 patt
+    depth_min: float = 0.0      # minimum of the pressure→depth curve (textureDepthDynamics.Mnm)
+    pressure: bool = False      # depth follows pressure (bVTy==2)
+    blend_mode: str = "Mul "    # PS 4CC member ('linearHeight' etc.)
+    image: np.ndarray | None = None  # (h,w,3) RGB or (h,w) grayscale, from patt
 
 
 @dataclass
 class BrushPreset:
     name: str
-    spacing: float = 0.25          # 0..1（Krita spacing 为直径占比）
-    angle: float = 0.0             # 度
-    roundness: float = 100.0       # 0..100（100 = 圆）
-    diameter: float | None = None  # px（计算笔刷用）
-    hardness: float | None = None  # 0..100（计算笔刷用）
-    scale: float = 1.0             # 采样笔刷的缩放（Dmtr / 笔尖宽度）
-    tip_gray: np.ndarray | None = None   # 采样笔尖蒙版（255=墨）
+    spacing: float = 0.25          # 0..1 (Krita spacing is a fraction of the diameter)
+    angle: float = 0.0             # degrees
+    roundness: float = 100.0       # 0..100 (100 = circle)
+    diameter: float | None = None  # px (computed brushes)
+    hardness: float | None = None  # 0..100 (computed brushes)
+    scale: float = 1.0             # sampled brush scale (Dmtr / tip width)
+    tip_gray: np.ndarray | None = None   # sampled tip mask (255 = ink)
     uuid: str | None = None
     is_computed: bool = False
     size_curve: str | None = None       # "x,y;x,y;"
@@ -94,22 +97,23 @@ class BrushPreset:
     ratio_curve: str | None = None
     rotation_sensor: str | None = None  # "pressure" | "drawingangle" | None
     rotation_jitter: float = 0.0
-    scatter: bool = False                 # useScatter → 散布选项启用
-    scatter_pressure: bool = False        # scatterDynamics.bVTy==2 → 散布量随压感
+    scatter: bool = False                 # useScatter → scatter option enabled
+    scatter_pressure: bool = False        # scatterDynamics.bVTy==2 → scatter amount follows pressure
     scatter_both_axes: bool = False
-    scatter_amount: float | None = None   # PS 散布量（scatterDynamics.jitter，0..1000%）
-    texture: TextureSettings | None = None  # 纹理设置（useTexture 且找到图案时非空）
-    warnings: list[str] = field(default_factory=list)  # 未映射参数的中文名
+    scatter_amount: float | None = None   # PS scatter amount (scatterDynamics.jitter, 0..1000%)
+    color_jitter: tuple[float, float, float] | None = None  # PS color dynamics (H, Strt, Brgh) 0..100%
+    texture: TextureSettings | None = None  # texture settings (set when useTexture and a pattern is found)
+    warnings: list[str] = field(default_factory=list)  # English names of unmapped parameters
     meta: dict = field(default_factory=dict)
 
 
 def _norm_uuid(s: str) -> str:
-    """规范化 UUID：去 NUL、去空格、转小写、截到 36 字符。"""
+    """Normalize UUID: strip NULs, strip spaces, lowercase, truncate to 36 chars."""
     return s.replace("\x00", "").strip().lower()[:36]
 
 
 def _dyn(obj: dict[str, D.Value] | None) -> dict[str, float]:
-    """取出动态对象（szVr/opVr 等）里的数值字段：bVTy/fStp/jitter/Mnm。"""
+    """Extract the numeric fields from a dynamics object (szVr/opVr etc.): bVTy/fStp/jitter/Mnm."""
     if obj is None:
         return {}
     return {
@@ -120,10 +124,10 @@ def _dyn(obj: dict[str, D.Value] | None) -> dict[str, float]:
 
 
 def _texture_blend_mode(p: dict[str, D.Value]) -> str:
-    """取 textureBlendMode 枚举成员（如 'linearHeight'）。
+    """Read the textureBlendMode enum member (e.g. 'linearHeight').
 
-    描述符解析器里 enum 存成 value=类 id('BlnM')、type_id=成员 id，
-    语义值在 type_id 上（与 toolOptions.Md 的 'Nrml' 同理）。
+    The descriptor parser stores an enum as value=class id('BlnM'), type_id=member id;
+    the semantic value lives on type_id (same as toolOptions.Md's 'Nrml').
     """
     v = p.get("textureBlendMode")
     if v is not None and v.type == "enum" and isinstance(v.type_id, str):
@@ -133,7 +137,7 @@ def _texture_blend_mode(p: dict[str, D.Value]) -> str:
 
 def _map_texture(p: dict[str, D.Value],
                  patterns: dict[str, object]) -> TextureSettings | None:
-    """从 useTexture 预设提取纹理设置（含 patt 位图查找，按 UUID）。"""
+    """Extract texture settings from a useTexture preset (including the patt bitmap lookup by UUID)."""
     tex_obj = D.get_obj(p, "Txtr") or {}
     tex_uuid = D.get_text(tex_obj, "Idnt")
     tex_name = D.get_text(tex_obj, "Nm  ")
@@ -156,23 +160,45 @@ def _map_texture(p: dict[str, D.Value],
 
 
 def _bvty_sensor(bvty: float | None) -> str | None:
-    """Photoshop bVTy 控制源 → Krita 传感器 id。"""
+    """Photoshop bVTy control source → Krita sensor id."""
     if bvty is None:
         return None
     b = int(bvty)
-    if b == 2:          # 压力
+    if b == 2:          # pressure
         return "pressure"
-    if b in (6, 7):     # 初始方向 / 方向
+    if b in (6, 7):     # initial direction / direction
         return "drawingangle"
-    if b == 3:          # 倾斜
+    if b == 3:          # tilt
         return "tilt"
-    return None         # 0=off, 1=fade, 4=wheel, 5=rotation 暂不映射
+    return None         # 0=off, 1=fade, 4=wheel, 5=rotation not mapped yet
+
+
+def _color_jitter(p: dict[str, D.Value]) -> tuple[float, float, float] | None:
+    """PS color dynamics jitters (H, Strt, Brgh in the clVr group), 0..100% each.
+
+    Returns None when color dynamics is off. Descriptor keys are 4 chars ("H  ",
+    "Strt", "Brgh"), so each name is tried padded as well as bare.
+    """
+    if not D.get_bool(p, "useColorDynamics"):
+        return None
+    cd = D.get_obj(p, "clVr") or {}
+
+    def jitter(key: str) -> float:
+        for k in (key, key.ljust(4)):
+            n = D.get_number(cd, k)
+            if n is None:
+                n = D.get_number(p, k)
+            if n is not None:
+                return max(0.0, min(100.0, float(n)))
+        return 0.0
+
+    return (jitter("H"), jitter("Strt"), jitter("Brgh"))
 
 
 def map_presets(abr: AbrFile) -> list[BrushPreset]:
-    """把已解析的 ABR 映射为一组 BrushPreset（含去重）。
+    """Map a parsed ABR to a list of BrushPreset (with deduplication).
 
-    无 desc 区段（罕见旧文件）时退化为按笔尖逐个生成默认预设。
+    Without a desc section (rare old files), falls back to generating a default preset per tip.
     """
     if "desc" not in abr.sections:
         return [
@@ -212,11 +238,12 @@ def map_presets(abr: AbrFile) -> list[BrushPreset]:
 
         scale = 1.0
         if tip is not None and diameter is not None:
-            # Krita sampled brush 的 scale 以方形笔尖画布为基准；非正方形
-            # 若仍使用 width，会导致预设编辑器显示尺寸与实际绘图区不一致。
+            # A sampled brush's scale in Krita is based on a square tip canvas; a
+            # non-square tip still using width would make the preset editor display a
+            # size inconsistent with the actual painting area.
             scale = diameter / max(1, tip.width, tip.height)
 
-        # 各动态的 bVTy / 数值
+        # bVTy / numeric values of each dynamics object
         sz = _dyn(D.get_obj(p, "szVr"))
         ang = _dyn(D.get_obj(p, "angleDynamics"))
         rnd = _dyn(D.get_obj(p, "roundnessDynamics"))
@@ -253,15 +280,16 @@ def map_presets(abr: AbrFile) -> list[BrushPreset]:
         scatter = D.get_bool(p, "useScatter") or False
         scatter_pressure = sct.get("bVTy") == 2
         scatter_both_axes = D.get_bool(p, "bothAxes") or False
-        # PS 散布量存于 scatterDynamics.jitter（#Prc，0..1000%），顶层 Spcn 是间距
+        # The PS scatter amount lives in scatterDynamics.jitter (#Prc, 0..1000%); the top-level Spcn is spacing
         scatter_amount = sct.get("jitter") if (scatter and "jitter" in sct) else None
 
         texture = _map_texture(p, patterns) if D.get_bool(p, "useTexture") else None
+        color_jitter = _color_jitter(p)
         warnings = _collect_warnings(p, texture)
-        # 旋转控制源 bVTy=1(渐隐)/3(倾斜)/4(转轮)/5(旋转) 尚未映射；
-        # 若 jitter>0 说明 PS 中该效果实际存在，丢失效果需要提示。
+        # Rotation control source bVTy=1(fade)/3(tilt)/4(wheel)/5(rotation) is not mapped yet;
+        # jitter>0 means the effect actually exists in PS, so the lost effect needs a warning.
         if rotation_jitter > 0 and ang.get("bVTy") not in (0, 2, 6, 7, None):
-            warnings.append(f"旋转控制源(bVTy={int(ang['bVTy'])} 未映射)")
+            warnings.append(f"Rotation control source (bVTy={int(ang['bVTy'])} not mapped)")
 
         out.append(BrushPreset(
             name=name,
@@ -285,6 +313,7 @@ def map_presets(abr: AbrFile) -> list[BrushPreset]:
             scatter_both_axes=scatter_both_axes,
             scatter_amount=scatter_amount,
             texture=texture,
+            color_jitter=color_jitter,
             warnings=warnings,
             meta={"Dmtr": diameter, "Hrdn": hardness, "Rndn": roundness, "Spcn": spacing * 100.0},
         ))
@@ -293,34 +322,32 @@ def map_presets(abr: AbrFile) -> list[BrushPreset]:
 
 def _collect_warnings(p: dict[str, D.Value],
                           texture: TextureSettings | None = None) -> list[str]:
-    """收集当前预设里未映射的参数（供 GUI 弹出提醒）。"""
+    """Collect the parameters of the current preset that are not mapped (for a GUI popup)."""
     warnings: list[str] = []
     if D.get_bool(p, "useTexture"):
-        # 纹理主体已映射：只对异常/回退/无对应项保留轻量警告
+        # The texture body is already mapped: keep only lightweight warnings for anomalies / fallbacks / missing counterparts
         if texture is None or texture.image is None:
-            warnings.append("纹理(图案缺失)")
+            warnings.append("Texture (pattern missing)")
         elif texture.blend_mode not in _TEXTURING_MODE:
-            warnings.append(f"纹理混合模式({texture.blend_mode!r} 回退Multiply)")
+            warnings.append(f"Texture blend mode ({texture.blend_mode!r} falls back to Multiply)")
         if D.get_bool(p, "protectTexture"):
-            warnings.append("纹理(protectTexture 未映射)")
-        # TxtC(Texture Each Tip) / interpretation 在 Krita 无对应，但为本文件默认值，
-        # 静默忽略（与用户确认的方案一致）。
-    if D.get_bool(p, "useColorDynamics"):
-        warnings.append("颜色动态")
+            warnings.append("Texture (protectTexture not mapped)")
+        # TxtC(Texture Each Tip) / interpretation has no counterpart in Krita but is this
+        # file's default, so it is silently ignored (as agreed with the user).
     if D.get_bool(p, "Wtdg"):
-        warnings.append("湿边")
+        warnings.append("Wet Edges")
     if D.get_bool(p, "Nose"):
-        warnings.append("喷嘴")
+        warnings.append("Airbrush / Nozzle")
     if D.get_bool(p, "useBrushPose"):
-        warnings.append("笔刷姿态")
+        warnings.append("Brush Pose")
     dual = D.get_obj(p, "dualBrush")
     if dual is not None and D.get_bool(dual, "useDualBrush"):
-        warnings.append("双笔刷")
+        warnings.append("Dual Brush")
     return warnings
 
 
 def _dedupe(presets: list[BrushPreset]) -> list[BrushPreset]:
-    """去掉完全重复的预设（同 name+uuid+Dmtr），保留首个。"""
+    """Drop exactly duplicate presets (same name+uuid+Dmtr), keeping the first one."""
     seen: set[tuple] = set()
     result: list[BrushPreset] = []
     for bp in presets:

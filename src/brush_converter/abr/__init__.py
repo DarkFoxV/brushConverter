@@ -1,7 +1,7 @@
-"""ABR（Photoshop 笔刷）读取子包。
+"""ABR (Photoshop brush) reading subpackage.
 
-布局与算法参考 GIMP 官方实现 app/core/gimpbrush-load.c（GPL），
-在 Python 中独立重写。
+Layout and algorithm reference the official GIMP implementation
+app/core/gimpbrush-load.c (GPL), independently rewritten in Python.
 """
 
 from .patterns import PatternTexture, parse_patterns

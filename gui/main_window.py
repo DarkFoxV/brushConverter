@@ -1,4 +1,4 @@
-"""主窗口：打开 ABR、预览笔尖、勾选转换、产物格式、未映射参数提醒、中英文切换。"""
+"""Main window: open ABR, preview brush tips, select for conversion, output format, unmapped parameter warnings, language switching."""
 
 from __future__ import annotations
 
@@ -25,9 +25,9 @@ from .workers import ConvertWorker, ParseWorker
 
 
 def _gray_to_pixmap(gray: np.ndarray | None, size: int = 64) -> QPixmap:
-    """灰度蒙版（255=墨）→ 白色在透明底上的缩略图。"""
+    """Grayscale mask (255=ink) -> thumbnail with white on transparent background."""
     if gray is None:
-        # 计算笔刷：画一个简单圆点占位
+        # Computed brush: draw a simple dot placeholder
         gray = np.zeros((64, 64), dtype=np.uint8)
         yy, xx = np.mgrid[0:64, 0:64].astype(np.float64)
         d = np.sqrt((xx - 31.5) ** 2 + (yy - 31.5) ** 2)
@@ -40,7 +40,7 @@ def _gray_to_pixmap(gray: np.ndarray | None, size: int = 64) -> QPixmap:
 
 
 class BrushItemWidget(QWidget):
-    """单个笔刷卡片：勾选框 + 缩略图 + 名称 + 未映射警告。"""
+    """Single brush card: checkbox + thumbnail + name + unmapped warnings."""
 
     def __init__(self, preset: BrushPreset, parent=None):
         super().__init__(parent)
@@ -83,17 +83,17 @@ class BrushItemWidget(QWidget):
 
 
 class MainWindow(QMainWindow):
-    """主窗口：打开 ABR → 预览/勾选笔刷 → 选择产物格式 → 转换。
+    """Main window: open ABR -> preview/select brushes -> choose output format -> convert.
 
-    解析与转换都在后台 QThread 执行（见 workers.py），避免阻塞界面。
-    界面文本支持中文/English 切换（右上角下拉框），选择会持久化。
+    Parsing and conversion run in background QThread (see workers.py) to avoid blocking UI.
+    UI text supports Chinese/English switching (top-right dropdown), selection is persisted.
     """
 
     def __init__(self):
         super().__init__()
         self._settings = QSettings("brushConverter", "brushConverter")
-        saved = self._settings.value("language", "zh")
-        set_language(saved if saved in ("zh", "en") else "zh")
+        saved = self._settings.value("language", "en")
+        set_language(saved if saved in ("pt", "en") else "en")
 
         self._abr: AbrFile | None = None
         self._presets: list[BrushPreset] = []
@@ -107,14 +107,14 @@ class MainWindow(QMainWindow):
 
     # ---------- UI ----------
     def _build_ui(self) -> None:
-        """搭建界面：顶栏（打开文件 + 语言切换）+ 笔刷列表 + 输出设置 + 转换按钮。"""
+        """Build UI: top bar (open file + language switch) + brush list + output settings + convert button."""
         central = QWidget()
         self.setCentralWidget(central)
         root = QVBoxLayout(central)
         root.setContentsMargins(12, 12, 12, 12)
         root.setSpacing(10)
 
-        # 顶栏：打开文件 + 右上角语言切换
+        # Top bar: open file + top-right language switch
         top = QHBoxLayout()
         self.open_btn = QPushButton(tr("open_abr"))
         self.open_btn.clicked.connect(self._on_open)
@@ -124,14 +124,14 @@ class MainWindow(QMainWindow):
         top.addWidget(self.file_label, 1)
 
         self.lang_combo = QComboBox()
-        self.lang_combo.addItem("中文", "zh")
         self.lang_combo.addItem("English", "en")
-        self.lang_combo.setCurrentIndex(0 if get_language() == "zh" else 1)
+        self.lang_combo.addItem("Português", "pt")
+        self.lang_combo.setCurrentIndex(0 if get_language() == "en" else 1)
         self.lang_combo.currentIndexChanged.connect(self._on_lang_changed)
         top.addWidget(self.lang_combo)
         root.addLayout(top)
 
-        # 笔刷列表
+        # Brush list
         self.list_group = QGroupBox(tr("brush_list"))
         list_layout = QVBoxLayout(self.list_group)
         self.brush_list = QListWidget()
@@ -151,7 +151,7 @@ class MainWindow(QMainWindow):
         list_layout.addLayout(sel_row)
         root.addWidget(self.list_group, 1)
 
-        # 输出设置
+        # Output settings
         self.out_group = QGroupBox(tr("output"))
         out_layout = QVBoxLayout(self.out_group)
 
@@ -180,7 +180,7 @@ class MainWindow(QMainWindow):
         out_layout.addLayout(dir_row)
         root.addWidget(self.out_group)
 
-        # 转换按钮
+        # Convert button
         self.convert_btn = QPushButton(tr("convert"))
         self.convert_btn.setStyleSheet("padding:8px; font-size:14px;")
         self.convert_btn.clicked.connect(self._on_convert)
@@ -192,7 +192,7 @@ class MainWindow(QMainWindow):
         root.addWidget(self.status_label)
 
     def _retranslate(self) -> None:
-        """按当前语言重设静态文本；已加载笔刷时重建列表卡片。"""
+        """Reapply static text for current language; rebuild brush cards if loaded."""
         self.setWindowTitle(tr("window_title"))
         self.open_btn.setText(tr("open_abr"))
         self.file_label.setText(self._file_path or tr("no_file"))
@@ -211,7 +211,7 @@ class MainWindow(QMainWindow):
         self._refresh_status()
 
     def _set_status(self, key: str | None = None, **kwargs) -> None:
-        """记录并显示状态文本（key 为 i18n 键，None 表示清空）。"""
+        """Record and display status text (key is i18n key, None clears)."""
         if key is None:
             self._status = None
             self.status_label.setText("")
@@ -226,9 +226,9 @@ class MainWindow(QMainWindow):
             key, kwargs = self._status
             self.status_label.setText(tr(key, **kwargs))
 
-    # ---------- 事件 ----------
+    # ---------- events ----------
     def _on_lang_changed(self, index: int) -> None:
-        """右上角语言切换：更新模块语言、持久化并重绘界面。"""
+        """Top-right language switch: update module language, persist and redraw UI."""
         lang = self.lang_combo.itemData(index)
         if lang == get_language():
             return
@@ -237,7 +237,7 @@ class MainWindow(QMainWindow):
         self._retranslate()
 
     def _on_open(self) -> None:
-        """选择并异步解析 ABR 文件（ParseWorker 后台线程）。"""
+        """Select and asynchronously parse ABR file (ParseWorker background thread)."""
         path, _ = QFileDialog.getOpenFileName(
             self, tr("select_abr"), "", tr("abr_filter"))
         if not path:
@@ -252,7 +252,7 @@ class MainWindow(QMainWindow):
         self._parse_worker.start()
 
     def _on_parsed(self, abr, presets) -> None:
-        """解析完成的回调：填充列表，失败则弹窗。"""
+        """Parse completion callback: populate list, show dialog on failure."""
         self.open_btn.setEnabled(True)
         if abr is None:
             self._set_status(None)
@@ -265,7 +265,7 @@ class MainWindow(QMainWindow):
         self.convert_btn.setEnabled(True)
 
     def _populate(self, presets: list[BrushPreset]) -> None:
-        """把预设填充为列表项（每项一个 BrushItemWidget 卡片）。"""
+        """Fill presets as list items (each a BrushItemWidget card)."""
         self.brush_list.clear()
         for bp in presets:
             item = QListWidgetItem()
@@ -277,7 +277,7 @@ class MainWindow(QMainWindow):
         self._update_count()
 
     def _selected_presets(self) -> list[BrushPreset]:
-        """返回当前勾选的预设列表（按列表顺序）。"""
+        """Return currently checked presets list (in list order)."""
         selected = []
         for i in range(self.brush_list.count()):
             item = self.brush_list.item(i)
@@ -287,27 +287,27 @@ class MainWindow(QMainWindow):
         return selected
 
     def _set_all(self, checked: bool) -> None:
-        """全选 / 全不选。"""
+        """Select all / select none."""
         for i in range(self.brush_list.count()):
             widget = self.brush_list.itemWidget(self.brush_list.item(i))
             if widget is not None:
                 widget.checkbox.setChecked(checked)
 
     def _update_count(self) -> None:
-        """刷新「共 N 支 · 已选 M 支」计数标签。"""
+        """Refresh 'N total · M selected' count label."""
         total = self.brush_list.count()
         sel = len(self._selected_presets())
         self.count_label.setText(tr("count", total=total, sel=sel))
 
     def _on_browse(self) -> None:
-        """弹出目录选择框，更新输出目录输入框。"""
+        """Open directory picker, update output directory input."""
         d = QFileDialog.getExistingDirectory(
             self, tr("select_out_dir"), self.out_dir_edit.text())
         if d:
             self.out_dir_edit.setText(d)
 
     def _on_convert(self) -> None:
-        """校验勾选 → 未映射参数提醒 → 纹理亮度/对比度提示 → 后台转换。"""
+        """Validate selection -> unmapped params warning -> texture brightness/contrast hint -> background conversion."""
         if self._abr is None:
             return
         selected = self._selected_presets()
@@ -315,7 +315,7 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, tr("hint"), tr("need_select"))
             return
 
-        # 未映射参数提醒
+        # Unmapped parameters warning
         warned: dict[str, list[str]] = {}
         for bp in selected:
             if bp.warnings:
@@ -334,7 +334,7 @@ class MainWindow(QMainWindow):
             if ret != QMessageBox.StandardButton.Yes:
                 return
 
-        # 纹理亮度/对比度为经验映射，提示用户转换后手动微调
+        # Texture brightness/contrast is an approximate mapping; prompt user to fine-tune after conversion
         textured = [bp for bp in selected
                     if bp.texture is not None and bp.texture.image is not None]
         if textured:
@@ -358,9 +358,9 @@ class MainWindow(QMainWindow):
         self._convert_worker.start()
 
     def _on_converted(self, result) -> None:
-        """转换完成的回调：显示输出位置，失败则弹错误框。"""
+        """Conversion completion callback: show output location, show error dialog on failure."""
         self.convert_btn.setEnabled(True)
-        if isinstance(result, str):  # 错误信息
+        if isinstance(result, str):  # error message
             self._set_status(None)
             QMessageBox.critical(self, tr("convert_failed"), result)
             return
@@ -377,7 +377,7 @@ class MainWindow(QMainWindow):
 
 
 def main() -> int:
-    """启动 GUI 主循环，返回应用退出码。"""
+    """Start GUI main loop, return application exit code."""
     app = QApplication(sys.argv)
     win = MainWindow()
     win.show()

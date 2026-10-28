@@ -1,4 +1,4 @@
-"""ABR samp 区的采样笔尖提取（v1/v2 旧格式与 v6.1/v6.2 新格式）。"""
+"""Extraction of sampled brush tips from the ABR samp section (v1/v2 old format and v6.1/v6.2 new format)."""
 
 from __future__ import annotations
 
@@ -9,12 +9,12 @@ import numpy as np
 
 from .rle import rle_decode
 
-MAX_SIZE = 10000  # 与 GIMP_BRUSH_MAX_SIZE 同量级的保护上限
+MAX_SIZE = 10000  # protective cap on the same order as GIMP_BRUSH_MAX_SIZE
 
 
 @dataclass
 class BrushTip:
-    """一个采样笔尖。gray 为 uint8 (h, w) 不透明蒙版，255 = 墨、0 = 透明。"""
+    """A sampled brush tip. gray is a uint8 (h, w) opacity mask: 255 = ink, 0 = transparent."""
 
     index: int
     width: int
@@ -33,54 +33,54 @@ class AbrParseError(ValueError):
 
 
 def _to_gray8(raw: np.ndarray, bytes_per_pixel: int) -> np.ndarray:
-    """把原始像素数据归一为 uint8 灰度。"""
+    """Normalize raw pixel data to uint8 grayscale."""
     if bytes_per_pixel == 1:
         return raw.astype(np.uint8)
     if bytes_per_pixel == 2:
-        # 16 位样本按小端存储（与 GIMP 行为一致），映射到 0..255
+        # 16-bit samples are stored little-endian (consistent with GIMP's behavior), mapped to 0..255
         u16 = raw.view("<u2").astype(np.float64) / 65535.0
         return (u16 * 255.0 + 0.5).astype(np.uint8)
-    raise AbrParseError(f"不支持的位深: {bytes_per_pixel} 字节/像素")
+    raise AbrParseError(f"Unsupported bit depth: {bytes_per_pixel} bytes/pixel")
 
 
 def _decode_pixels(buf, compress: int, width: int, height: int,
                    bytes_per_pixel: int) -> np.ndarray:
-    """解压并转换为「不透明蒙版」灰度（255=墨）。
+    """Decompress and convert to an "opacity mask" grayscale (255=ink).
 
-    compress 0=原始、1=PackBits RLE。返回 (h, w) uint8 蒙版。
+    compress 0=raw, 1=PackBits RLE. Returns an (h, w) uint8 mask.
     """
     size = width * height * bytes_per_pixel
     if compress == 0:
         if len(buf) < size:
-            raise AbrParseError("原始像素数据被截断")
+            raise AbrParseError("Raw pixel data truncated")
         raw = np.frombuffer(buf[:size], dtype=np.uint8)
     elif compress == 1:
         if bytes_per_pixel != 1:
-            raise AbrParseError("RLE 压缩仅支持 8 位笔尖")
+            raise AbrParseError("RLE compression only supports 8-bit tips")
         raw = rle_decode(buf, size, height)
     else:
-        raise AbrParseError(f"未知压缩模式: {compress}")
+        raise AbrParseError(f"Unknown compression mode: {compress}")
     gray = _to_gray8(raw, bytes_per_pixel)
-    # ABR 采样字节语义：0 = 不透明(墨)、255 = 透明（与 Krita 的
-    # convertToQImage 一致，Krita 对 ABR 与 GBR 都做 255 - byte 反转）。
-    # 这里统一转为「不透明蒙版」：255 = 墨，便于预览与下游生成 GBR。
+    # ABR sampled byte semantics: 0 = opaque (ink), 255 = transparent (consistent with
+    # Krita's convertToQImage; Krita applies a 255 - byte inversion to both ABR and GBR).
+    # Here we normalize to an "opacity mask": 255 = ink, for preview and downstream GBR generation.
     mask = (255 - gray.reshape(height, width)).astype(np.uint8)
     return mask
 
 
 def _parse_v12(data: memoryview | bytes, count: int, version: int,
                base_name: str) -> list[BrushTip]:
-    """旧格式（主版本 1/2）：count 支笔刷依次排列。"""
+    """Old format (major version 1/2): count brushes laid out in sequence."""
     tips: list[BrushTip] = []
     pos = 4
     for i in range(count):
         if pos + 6 > len(data):
-            raise AbrParseError(f"第 {i} 支笔刷头部越界")
+            raise AbrParseError(f"Brush header out of bounds at index {i}")
         brush_type, size = struct.unpack_from(">HI", data, pos)
         item_start = pos
         pos += 6
         next_pos = pos + size
-        if brush_type != 2:  # 1=计算笔尖（无位图），其他未知：跳过
+        if brush_type != 2:  # 1=calculated tip (no bitmap), other values unknown: skip
             pos = next_pos
             continue
         _misc, spacing = struct.unpack_from(">IH", data, pos)
@@ -101,7 +101,7 @@ def _parse_v12(data: memoryview | bytes, count: int, version: int,
         pos += 1
         width, height = right - left, bottom - top
         if not (1 <= width <= MAX_SIZE and 1 <= height <= MAX_SIZE):
-            raise AbrParseError(f"笔刷尺寸越界: {width}x{height}")
+            raise AbrParseError(f"Brush size out of bounds: {width}x{height}")
         bpp = depth_bits >> 3
         gray = _decode_pixels(data[pos:next_pos], compress, width, height, bpp)
         tips.append(BrushTip(
@@ -114,7 +114,7 @@ def _parse_v12(data: memoryview | bytes, count: int, version: int,
 
 
 def _read_pascal_uuid(data, pos: int) -> str | None:
-    """尽力读取 v6.2 笔尖项的 UUID（1 字节长度 + ASCII）。失败返回 None。"""
+    """Best-effort read of a v6.2 brush item's UUID (1-byte length + ASCII). Returns None on failure."""
     try:
         length = data[pos]
         if not (20 <= length <= 40):
@@ -130,7 +130,7 @@ def _read_pascal_uuid(data, pos: int) -> str | None:
 
 def _parse_v6(data: memoryview | bytes, section_end: int,
               subversion: int, base_name: str) -> list[BrushTip]:
-    """新格式（主版本 6/10）：samp 区内逐项解析。"""
+    """New format (major version 6/10): parse item by item within the samp section."""
     skip = 47 if subversion == 1 else 301
     tips: list[BrushTip] = []
     pos = 0
@@ -138,8 +138,8 @@ def _parse_v6(data: memoryview | bytes, section_end: int,
         (brush_size,) = struct.unpack_from(">I", data, pos)
         item_start = pos
         next_pos = pos + 4 + brush_size + (-brush_size % 4)
-        if next_pos > section_end + 3:  # 允许最后一段轻微越界（无填充）
-            raise AbrParseError(f"笔刷项长度越界: item@{item_start} size={brush_size}")
+        if next_pos > section_end + 3:  # allow the last item to overrun slightly (no padding)
+            raise AbrParseError(f"Brush item length out of bounds: item@{item_start} size={brush_size}")
         uuid = _read_pascal_uuid(data, pos + 4)
         rect_off = pos + 4 + skip
         top, left, bottom, right = struct.unpack_from(">4i", data, rect_off)
@@ -147,10 +147,10 @@ def _parse_v6(data: memoryview | bytes, section_end: int,
         compress = data[rect_off + 18]
         width, height = right - left, bottom - top
         if not (1 <= width <= MAX_SIZE and 1 <= height <= MAX_SIZE):
-            raise AbrParseError(f"笔刷尺寸越界: {width}x{height} (item@{item_start})")
+            raise AbrParseError(f"Brush size out of bounds: {width}x{height} (item@{item_start})")
         bpp = depth_bits >> 3
         if not (1 <= bpp <= 2):
-            raise AbrParseError(f"不支持的位深: {depth_bits} bits")
+            raise AbrParseError(f"Unsupported bit depth: {depth_bits} bits")
         data_start = rect_off + 19
         gray = _decode_pixels(data[data_start:next_pos], compress, width, height, bpp)
         tips.append(BrushTip(
@@ -167,9 +167,9 @@ def _parse_v6(data: memoryview | bytes, section_end: int,
 
 def parse_samples(samp: memoryview | bytes, version: int, subversion: int,
                   base_name: str) -> list[BrushTip]:
-    """从 samp 区数据提取全部采样笔尖。"""
+    """Extract all sampled brush tips from the samp section data."""
     if version in (1, 2):
         return _parse_v12(samp, subversion, version, base_name)
     if version in (6, 10) and subversion in (1, 2):
         return _parse_v6(samp, len(samp), subversion, base_name)
-    raise AbrParseError(f"不支持的 ABR 版本: {version}.{subversion}")
+    raise AbrParseError(f"Unsupported ABR version: {version}.{subversion}")

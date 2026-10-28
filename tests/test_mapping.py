@@ -1,6 +1,6 @@
-"""阶段3 参数映射的回归测试。
+"""Regression tests for Stage 3 parameter mapping.
 
-对照用户手动转换的 Krita 参考预设（勾线笔）校准的关键值。
+Key values calibrated against the user's manually converted Krita reference preset (liner pen).
 """
 
 from __future__ import annotations
@@ -15,13 +15,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 from brush_converter.abr import AbrFile  # noqa: E402
 from brush_converter.mapping import map_presets  # noqa: E402
 
-# 测试样本为商用笔刷素材（42MB），不纳入版本库。样本缺失时整体跳过，
-# 需跑完整断言时把 .abr 放到 tests/ 目录即可。
+# Test sample is commercial brush material (42MB), not kept in version control. The whole
+# test is skipped when the sample is missing; place the .abr in tests/ to run full assertions.
 ABR = Path(__file__).parent / "海怪笔刷-详情展示的勾线笔套装组18支.abr"
 
 pytestmark = pytest.mark.skipif(
     not ABR.exists(),
-    reason="缺少测试样本 .abr（请自备到 tests/ 目录）",
+    reason="Missing test sample .abr (provide your own in tests/)",
 )
 
 
@@ -31,7 +31,7 @@ def _presets():
 
 
 def test_preset_count():
-    # 源文件 20 个预设，去掉 1 个完全重复的「淘宝店」横幅 → 19
+    # Source file has 20 presets, minus 1 exact-duplicate "Taobao store" banner -> 19
     assert len(_presets()) == 19
 
 
@@ -43,12 +43,12 @@ def test_dedup_banner():
 def test_scatter_mapping():
     presets = _presets()
     line = next(p for p in presets if "大怪兽-勾线笔" in p.name)
-    # 勾线笔 useScatter=True，散布量随压感(bVTy=2)
+    # Liner pen has useScatter=True, scatter amount follows pressure (bVTy=2)
     assert line.scatter is True
     assert line.scatter_pressure is True
     assert line.scatter_both_axes is False
 
-    # 气泡 useScatter=True 但 bVTy=0（散布不随压感），仍应启用
+    # Bubble has useScatter=True but bVTy=0 (scatter does not follow pressure), still enabled
     bubble = next(p for p in presets if "气泡" in p.name)
     assert bubble.scatter is True
     assert bubble.scatter_pressure is False
@@ -57,34 +57,34 @@ def test_scatter_mapping():
 
 def test_scatter_amount():
     presets = _presets()
-    # 气泡：scatterDynamics.jitter=145%（顶层 Spcn 是间距，不是散布量）
+    # Bubble: scatterDynamics.jitter=145% (top-level Spcn is spacing, not scatter amount)
     bubble = next(p for p in presets if "气泡" in p.name)
     assert bubble.scatter_amount == 145.0
-    # 蝴蝶：jitter=85%
+    # Butterfly: jitter=85%
     butterfly = next(p for p in presets if "蝴蝶" in p.name)
     assert butterfly.scatter_amount == 85.0
-    # 勾线笔：jitter=0（散布启用但量为 0）
+    # Liner pen: jitter=0 (scatter enabled but amount is 0)
     line = next(p for p in presets if "大怪兽-勾线笔" in p.name)
     assert line.scatter_amount == 0.0
 
 
 def test_line_pen_scale():
-    # 大怪兽-勾线笔【用数位板】(index 2) 共用笔尖 87465e27，Dmtr=26
+    # Monster liner pen [for tablet] (index 2) shares tip 87465e27, Dmtr=26
     presets = _presets()
     line = next(p for p in presets if "大怪兽-勾线笔" in p.name)
     assert line.diameter == 26.0
-    # 笔尖原图 1895×1901，正方形画布基准取较大边 → scale = 26/1901
+    # Tip image is 1895x1901, square canvas baseline takes the larger side -> scale = 26/1901
     assert abs(line.scale - 26.0 / 1901.0) < 1e-9
 
 
 def test_line_pen_dynamics():
     presets = _presets()
     line = next(p for p in presets if "大怪兽-勾线笔" in p.name)
-    # 流量 min 17%，不透明度 min 80%，宽高比 min 30%
+    # Flow min 17%, opacity min 80%, aspect ratio min 30%
     assert line.flow_curve == "0,0.17;1,1;"
     assert line.opacity_curve == "0,0.8;1,1;"
     assert line.ratio_curve == "0,0.3;1,1;"
-    # 旋转随笔迹方向，散布由压感控制
+    # Rotation follows stroke direction, scatter controlled by pressure
     assert line.rotation_sensor == "drawingangle"
     assert line.rotation_jitter == 6.0
     assert line.scatter is True
@@ -100,27 +100,27 @@ def test_computed_brush():
 
 
 def test_auto_brush_angle_radians():
-    # 角度：Photoshop Angl 是度，Krita XML 存弧度；负角度 normalize 到 [0,360) 再转弧度
+    # Angle: Photoshop Angl is degrees, Krita XML stores radians; negative angle normalized to [0,360) then converted to radians
     from brush_converter.kpp.preset_xml import auto_brush_definition
     import math
     xml = auto_brush_definition(25.0, 0.05, -33.0, 100.0, 84.0)
-    # -33° → 327° → 弧度
+    # -33° → 327° → radians
     assert f'angle="{math.radians(-33.0 % 360.0):g}"' in xml
 
 
 def test_auto_brush_hardness_fade():
-    # 硬度 84% → fade 0.84（fade=实心区占比，与硬度同向，不是 (100-h)/100）
+    # Hardness 84% → fade 0.84 (fade = solid area fraction, same direction as hardness, not (100-h)/100)
     from brush_converter.kpp.preset_xml import auto_brush_definition
     xml = auto_brush_definition(25.0, 0.05, 0.0, 100.0, 84.0)
     assert 'hfade="0.84"' in xml
     assert 'vfade="0.84"' in xml
-    # 边界：硬度 100% → 1.0，硬度 0% → 0.0
+    # Edge cases: hardness 100% → 1.0, hardness 0% → 0.0
     assert 'hfade="1"' in auto_brush_definition(25.0, 0.05, 0.0, 100.0, 100.0)
     assert 'hfade="0"' in auto_brush_definition(25.0, 0.05, 0.0, 100.0, 0.0)
 
 
 def test_sampled_brush_angle_radians():
-    # 采样笔刷的 angle 同样要度→弧度 + normalize
+    # Sampled brush angle also needs degrees→radians + normalize
     from brush_converter.kpp.preset_xml import sampled_brush_definition
     import math
     xml = sampled_brush_definition("x.png", "abc123", 0.25, -33.0, 1.0)
@@ -132,7 +132,7 @@ def test_rotation_jitter_uses_effect_strength_and_180_degree_curves():
     xml = build_preset_xml("rotation", "", None, rotation_sensor="drawingangle", rotation_jitter=12.0)
     assert 'RotationValue" type="internal">0.12' in xml
     assert 'RotationUseCurve" type="internal">true' in xml
-    # Krita UI 显示 ±180°，但 XML 的曲线坐标是归一化 0..1。
+    # Krita UI shows ±180°, but the XML curve coordinates are normalized 0..1.
     assert '<ChildSensor id="fuzzy"> <curve>0,0;1,1;</curve>' in xml
     assert '<ChildSensor id="fuzzystroke"> <curve>0,0;1,1;</curve>' in xml
 
@@ -166,7 +166,7 @@ def test_generated_sampled_brush_resource_is_square():
 def test_texture_mapping():
     presets = _presets()
     textured = [p for p in presets if p.texture is not None]
-    # 源文件 9 支笔刷开启纹理（含 1×1 中性纹理的勾线笔×2）
+    # Source file has 9 brushes with texture enabled (including 2 liner pens with a 1x1 neutral texture)
     assert len(textured) == 9
 
     line = next(p for p in presets if "大怪兽-勾线笔" in p.name)
@@ -196,7 +196,7 @@ def test_texture_mapping():
 def test_new_texture_sample_modes():
     sample = Path(__file__).parent / "测试用.abr"
     if not sample.exists():
-        pytest.skip("缺少测试用.abr")
+        pytest.skip("Missing 测试用.abr sample")
     presets = map_presets(AbrFile.parse(sample))
     assert len(presets) == 6
     assert {p.texture.blend_mode for p in presets if p.texture} == {"Hght", "Sbtr", "hardMix"}
@@ -213,16 +213,16 @@ def test_new_texture_sample_modes():
 
 
 def test_texture_warnings_removed():
-    # 纹理主体已映射：不再出现「纹理」警告；只保留其他未映射项
+    # Texture core is mapped: no more "Texture" warnings; only other unmapped items remain
     presets = _presets()
     textured = [p for p in presets if p.texture is not None]
     assert textured
     for p in textured:
-        assert not any("纹理" in w for w in p.warnings)
+        assert not any("Texture" in w for w in p.warnings)
 
 
 def test_texture_xml_end_to_end():
-    # 转换管线端到端：勾线笔的 XML 应含 patterns 资源与纹理参数
+    # End-to-end conversion pipeline: liner pen XML should contain patterns resource and texture params
     from brush_converter.convert import _render_preset
     presets = _presets()
     line = next(p for p in presets if "大怪兽-勾线笔" in p.name)

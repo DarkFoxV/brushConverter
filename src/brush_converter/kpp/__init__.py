@@ -1,4 +1,4 @@
-"""Krita 预设（.kpp）与资源包（.bundle）生成。"""
+"""Krita preset (.kpp) and resource bundle (.bundle) generation."""
 
 from .kpp_writer import write_kpp
 from .preset_xml import TextureXml, build_preset_xml

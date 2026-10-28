@@ -1,126 +1,126 @@
-# ABR → Krita 完整参数映射清单
+# ABR → Krita Complete Parameter Mapping Checklist
 
-> 引擎：现阶段仅像素引擎（paintbrush）。源数据来自 `海怪笔刷…18支.abr`（v6.2，20 预设）。
-> ✅ = 已实现，⛔ = 不映射（原因见右侧），❓ = 待你确认。
+> Engine: pixel engine (`paintbrush`) only at this stage. Source data comes from `海怪笔刷…18支.abr` (v6.2, 20 presets).
+> ✅ = implemented, ⛔ = not mapped (reason at right), ❓ = awaiting confirmation.
 
-## 1. 笔尖与基础属性
+## 1. Brush Tip and Basic Properties
 
-| ABR 键 | 含义 | → Krita | 映射公式 | 状态 |
+| ABR key | Meaning | → Krita | Mapping formula | Status |
 |--------|------|---------|----------|------|
-| `samp` 位图 + `sampledData` UUID | 采样笔尖 | png_brush 内嵌笔尖 | 灰度 PNG，白=墨（base64 内嵌） | ✅ |
-| `Brsh.Dmtr` | 主直径 px | `scale` | `scale = Dmtr / max(笔尖宽, 笔尖高)`；采样笔尖内嵌 PNG 补零为正方形 | ✅（Krita 显示尺寸修正） |
-| `Brsh.Spcn` | 间距 % | `spacing` | `spacing = Spcn / 100` | ✅ |
-| `Brsh.Angl` | 角度（度） | `angle` | `math.radians(Angl % 360)`（度→弧度，负角先 normalize 到 [0,360)） | ✅ |
-| `Brsh.Rndn` | 圆度 % | （采样笔刷不映射，见注①） | — | ⛔ |
-| `Brsh.Hrdn` | 硬度 % | （采样笔刷不映射，见注①） | — | ⛔ |
-| `Nm ` | 笔刷名 | preset name | 直接 | ✅ |
+| `samp` bitmap + `sampledData` UUID | Sampled brush tip | Embedded tip in `png_brush` | Grayscale PNG, white = ink (base64 embedded) | ✅ |
+| `Brsh.Dmtr` | Main diameter in px | `scale` | `scale = Dmtr / max(tip width, tip height)`; pad the embedded sampled-tip PNG to a square | ✅ (Krita displayed-size fix) |
+| `Brsh.Spcn` | Spacing % | `spacing` | `spacing = Spcn / 100` | ✅ |
+| `Brsh.Angl` | Angle (degrees) | `angle` | `math.radians(Angl % 360)` (degrees → radians; normalize negative angles to [0, 360) first) | ✅ |
+| `Brsh.Rndn` | Roundness % | (not mapped for sampled brushes; see note ①) | — | ⛔ |
+| `Brsh.Hrdn` | Hardness % | (not mapped for sampled brushes; see note ①) | — | ⛔ |
+| `Nm ` | Brush name | Preset name | Direct | ✅ |
 
-> 注①：圆度/硬度只对「计算笔刷」有意义（采样笔刷的圆度已固化在笔尖位图里）。
+> Note ①: Roundness and hardness are meaningful only for procedural brushes; for sampled brushes, roundness is already baked into the tip bitmap.
 
-## 2. 计算笔刷（无位图 → auto_brush）
+## 2. Procedural Brushes (no bitmap → `auto_brush`)
 
-| ABR 键 | → Krita | 映射公式 | 状态 |
+| ABR key | → Krita | Mapping formula | Status |
 |--------|---------|----------|------|
-| `Dmtr` | `MaskGenerator.diameter` | 直接 | ✅ |
-| `Hrdn` | `hfade`/`vfade` | `Hrdn / 100`（fade=实心区占比，与硬度同向） | ✅ |
+| `Dmtr` | `MaskGenerator.diameter` | Direct | ✅ |
+| `Hrdn` | `hfade` / `vfade` | `Hrdn / 100` (fade = solid-area proportion, same direction as hardness) | ✅ |
 | `Rndn` | `ratio` | `Rndn / 100` | ✅ |
-| `Angl` | `angle` | `math.radians(Angl % 360)`（度→弧度，负角 normalize） | ✅ |
+| `Angl` | `angle` | `math.radians(Angl % 360)` (degrees → radians; normalize negative angles) | ✅ |
 | `Spcn` | `spacing` | `Spcn / 100` | ✅ |
 
-> 注①：圆度/硬度只对「计算笔刷」有意义。硬度映射 `fade = Hrdn/100`（Krita 的 `hfade/vfade` 是「实心区占半径比例」，硬度 100%→1.0 硬边、0%→0.0 全软，与 Photoshop 硬度同向，不是 `(100-Hrdn)/100`）。角度 `angle` 在 Krita XML 里存**弧度**、UI 范围 **[0,360) 度**，负角度需先 `% 360` normalize，否则被角度控件 clamp 到 0。
+> Note ①: Roundness and hardness apply only to procedural brushes. Hardness maps as `fade = Hrdn/100` (`hfade/vfade` in Krita is the solid-area proportion of the radius: 100% hardness → 1.0 hard edge, 0% → 0.0 fully soft; this has the same direction as Photoshop hardness, not `(100-Hrdn)/100`). The `angle` value in Krita XML is stored in **radians**, while the UI range is **[0, 360) degrees**. Normalize negative angles with `% 360` first, or the angle control clamps them to 0.
 
-## 3. 形状动态（Shape Dynamics）
+## 3. Shape Dynamics
 
-| ABR 键 | 条件 | → Krita | 映射公式 | 状态 |
-|--------|------|---------|----------|------|
-| `szVr.bVTy==2` | 压力 | `PressureSize=true` | — | ✅ |
+| ABR key | Condition | → Krita | Mapping formula | Status |
+|--------|-----------|---------|----------|------|
+| `szVr.bVTy==2` | Pressure | `PressureSize=true` | — | ✅ |
 | `minimumDiameter` | — | `SizecommonCurve` | `0,{minD/100};1,1;` | ✅ |
-| `angleDynamics.bVTy==6` | 方向 | `RotationSensor=drawingangle` | sensorslist + fuzzy | ✅ |
-| `angleDynamics.jitter` | `RotationValue`（旋转-效果强度） | fuzzy/fuzzystroke 曲线 | `RotationValue=jitter/100`；两条随机度曲线固定 `0,0;1,1;`（Krita UI 对应 -180°..+180°，XML 坐标归一化为 0..1） | ✅（按手调 KPP 校准） |
-| `angleDynamics.bVTy==2` | 压力 | `RotationSensor=pressure` | — | ✅ |
-| `angleDynamics.bVTy==0` 且 jitter>0 | 无控制源（纯随机抖动） | `PressureRotation=true` + fuzzy-only 传感器 | `RotationValue=jitter/100`；fuzzy/fuzzystroke 曲线 `0,0;1,1;`，**不含** drawingangle（不随笔迹方向） | ✅（待 Krita 实测复核） |
-| `roundnessDynamics.bVTy==2` | 压力 | `PressureRatio=true` | — | ✅ |
+| `angleDynamics.bVTy==6` | Direction | `RotationSensor=drawingangle` | sensorslist + fuzzy | ✅ |
+| `angleDynamics.jitter` | `RotationValue` (rotation effect strength) | fuzzy / fuzzystroke curves | `RotationValue=jitter/100`; both random curves fixed at `0,0;1,1;` (Krita UI corresponds to -180°..+180°, XML coordinates normalized to 0..1) | ✅ (calibrated against a manually adjusted KPP) |
+| `angleDynamics.bVTy==2` | Pressure | `RotationSensor=pressure` | — | ✅ |
+| `angleDynamics.bVTy==0` and jitter > 0 | No control source (pure random jitter) | `PressureRotation=true` + fuzzy-only sensor | `RotationValue=jitter/100`; fuzzy / fuzzystroke curves `0,0;1,1;`, **without** drawingangle (does not follow stroke direction) | ✅ (pending re-verification in Krita) |
+| `roundnessDynamics.bVTy==2` | Pressure | `PressureRatio=true` | — | ✅ |
 | `minimumRoundness` | — | `RatiocommonCurve` | `0,{minR/100};1,1;` | ✅ |
 
-## 4. 传递（Transfer）
+## 4. Transfer
 
-| ABR 键 | 条件 | → Krita | 映射公式 | 状态 |
-|--------|------|---------|----------|------|
-| `opVr.bVTy==2`（不透明度） | 压力 | `PressureOpacity=true` | — | ✅ |
+| ABR key | Condition | → Krita | Mapping formula | Status |
+|--------|-----------|---------|----------|------|
+| `opVr.bVTy==2` (opacity) | Pressure | `PressureOpacity=true` | — | ✅ |
 | `opVr.Mnm` | — | `OpacitycommonCurve` | `0,{Mnm/100};1,1;` | ✅ |
-| `prVr.bVTy==2`（流量） | 压力 | `PressureFlow=true` + `FlowUseCurve=true` | — | ✅ |
+| `prVr.bVTy==2` (flow) | Pressure | `PressureFlow=true` + `FlowUseCurve=true` | — | ✅ |
 | `prVr.Mnm` | — | `FlowcommonCurve` | `0,{Mnm/100};1,1;` | ✅ |
-| `wtVr`（湿度） | — | — | 像素引擎无对应 | ⛔ |
-| `mxVr`（混合） | — | — | 像素引擎无对应 | ⛔ |
+| `wtVr` (wetness) | — | — | No equivalent in the pixel engine | ⛔ |
+| `mxVr` (mixing) | — | — | No equivalent in the pixel engine | ⛔ |
 
-## 5. 散布（Scattering）
+## 5. Scattering
 
-| ABR 键 | 含义 | → Krita | 映射公式 | 状态 |
+| ABR key | Meaning | → Krita | Mapping formula | Status |
 |--------|------|---------|----------|------|
-| `useScatter` | 启用散布 | `PressureScatter=true`（散布开关） | — | ✅ |
-| `scatterDynamics.jitter` | 散布量（0–1000%） | `ScatterValue`（0–5.0） | `ScatterValue = jitter / 400` | ✅ |
-| `scatterDynamics.bVTy==2` | 散布量随压感 | `ScatterSensor=pressure` + `ScatterUseCurve=true` | — | ✅ |
-| `scatterDynamics.bVTy==0` | 散布恒定 | `ScatterUseCurve=false`（关闭曲线） | — | ✅ |
-| `bothAxes` | 两轴 | `AxisX`/`AxisY` | True→AxisX=Y=True；False→AxisX=False,Y=True | ✅ |
-| `Spcn`（顶层） | 散布间距 | — | 不映射到散布量（见注②） | ⛔ |
-| `Cnt`（数量） | — | — | Krita 像素引擎无「数量」 | ⛔ |
+| `useScatter` | Enable scattering | `PressureScatter=true` (scattering toggle) | — | ✅ |
+| `scatterDynamics.jitter` | Scatter amount (0–1000%) | `ScatterValue` (0–5.0) | `ScatterValue = jitter / 400` | ✅ |
+| `scatterDynamics.bVTy==2` | Scatter amount follows pressure | `ScatterSensor=pressure` + `ScatterUseCurve=true` | — | ✅ |
+| `scatterDynamics.bVTy==0` | Constant scatter | `ScatterUseCurve=false` (disable curve) | — | ✅ |
+| `bothAxes` | Both axes | `AxisX` / `AxisY` | True → AxisX=Y=True; False → AxisX=False, Y=True | ✅ |
+| Top-level `Spcn` | Scatter spacing | — | Not mapped to scatter amount (see note ②) | ⛔ |
+| `Cnt` (count) | — | — | The Krita pixel engine has no “count” setting | ⛔ |
 
-> 注②：Krita 里 `PressureScatter` 是「散布选项是否启用」的开关（`isChecked` 序列化名），并非"压感控制"；压感控制由 `ScatterSensor` 决定。散布量真正来源是 `scatterDynamics.jitter`（顶层 `Spcn` 实为间距，非散布量）。
+> Note ②: In Krita, `PressureScatter` is the toggle indicating whether scattering is enabled (serialized as `isChecked`), not the pressure-control setting; pressure control is determined by `ScatterSensor`. The actual scatter amount comes from `scatterDynamics.jitter` (top-level `Spcn` is spacing, not scatter amount).
 >
-> 散布量换算 `÷400`：PS 散布值 0–1000% 用高斯分布（值代表最大范围但集中度高），Krita `ScatterValue` 0–5.0（UI 0–500%）用均匀分布，两者视觉密度不同，线性 `÷200` 会偏大。经实测锚点校准（PS 145% ≈ Krita 35%，即 `ScatterValue 0.35`），经验系数约 `÷4`（即 `jitter/400`）。该系数可在 `preset_xml.py` 的散布分支调整。
+> The scatter conversion factor `÷400`: Photoshop's scatter value of 0–1000% uses a Gaussian distribution (the value represents the maximum range, but points remain concentrated), while Krita's `ScatterValue` of 0–5.0 (UI 0–500%) uses a uniform distribution. Their visual densities differ, so linear `÷200` produces too much scatter. Calibrated against a measured anchor (PS 145% ≈ Krita 35%, i.e. `ScatterValue 0.35`), the empirical factor is approximately `÷4` (`jitter/400`). Adjust this factor in the scattering branch of `preset_xml.py` if needed.
 
-| `countDynamics` | — | — | 同上 | ⛔ |
+| `countDynamics` | — | — | Same as above | ⛔ |
 
-## 6. 不映射（引擎差异大，已列为后续增强）
+## 6. Not Mapped (Major Engine Differences; Listed for Future Enhancement)
 
-| ABR 键 | 含义 | 原因 |
+| ABR key | Meaning | Reason |
 |--------|------|------|
-| `dualBrush` | 双笔刷 | Krita 是 masking brush 机制，语义不同 |
-| `useColorDynamics`（`H`/`Strt`/`Brgh`/`purity`/`clVr`） | 颜色动态 | 两软件颜色模型差异大 |
-| `Wtdg`（湿边） | 湿边 | 像素引擎需「Wet」选项，暂不启用 |
-| `Nose`/`Rpt`（喷嘴/重复） | — | 喷枪特性，暂不映射 |
-| `brushProjection` / `useBrushPose` | 投影/姿态 | 高级倾斜特性，暂不映射 |
+| `dualBrush` | Dual brush | Krita uses a masking-brush mechanism with different semantics |
+| `useColorDynamics` (`H` / `Strt` / `Brgh` / `purity` / `clVr`) | Color dynamics | The applications' color models differ significantly |
+| `Wtdg` (wet edges) | Wet edges | The pixel engine requires the “Wet” option; not enabled for now |
+| `Nose` / `Rpt` (nozzle / repetition) | — | Airbrush behavior; not mapped for now |
+| `brushProjection` / `useBrushPose` | Projection / pose | Advanced tilt features; not mapped for now |
 
-## 7. 纹理（Texture）✅（v1.1 新增）
+## 7. Texture ✅ (Added in v1.1)
 
-> 纹理数据源：ABR `patt` 区段（按 UUID 匹配 `Txtr.Idnt`），资源以 PNG 内嵌
-> （`type="patterns"`，与 Krita 5.x 官方样本一致）。格式细节见
-> `docs/developer-guide.md` 与 `docs/texture-mapping-proposal.md`。
+> Texture source: ABR `patt` section (matched to `Txtr.Idnt` by UUID); resource embedded as PNG
+> (`type="patterns"`, consistent with official Krita 5.x samples). See `docs/developer-guide.md` and
+> `docs/texture-mapping-proposal.md` for format details.
 
-| ABR 键 | → Krita 参数 | 映射公式 | 状态 |
+| ABR key | → Krita parameter | Mapping formula | Status |
 |--------|--------------|----------|------|
 | `useTexture` | `Texture/Pattern/Enabled` | `true` | ✅ |
-| `Txtr.Idnt` | 资源查找 | patt 记录按 UUID 匹配，PNG 内嵌 | ✅ |
-| `Txtr.Nm` | `Name` / `PatternFileName` | 安全文件名 `tex_<uuid前8>.png` | ✅ |
-| PNG 字节 | `PatternMD5Sum` | md5 hex（`PatternMD5` 留空，绕开 Krita 5.0 写二进制 bug） | ✅ |
-| `textureScale`（%） | `Texture/Pattern/Scale` | `textureScale/100`，clamp [0.01, 10] | ✅（用户已确认一致） |
-| `textureDepth`（%） | `Texture/Strength/Value` | `textureDepth/100`（0..1） | ✅ |
-| `textureDepthDynamics.bVTy==2` | `PressureTexture/Strength/` + `Texture/Strength/UseCurve` | `true` + `true`（压感曲线，最小值见下） | ✅ |
-| `textureDepthDynamics.bVTy==0` | `PressureTexture/Strength/` + `Texture/Strength/UseCurve` | `true` + `false`（效果强度开启、无传感器，恒定用 Value） | ✅ |
-| `textureDepthDynamics.Mnm` | `Texture/Strength/commonCurve` | `0,{Mnm/100};1,1;`（仅 bVTy==2） | ✅ |
-| `InvT` | `Texture/Pattern/Invert` | 直接 | ✅ |
-| `textureBlendMode` | `Texture/Pattern/TexturingMode` | 优先使用 Krita `(Photoshop)` 模式：`linearHeight`→Linear Height (Photoshop)=15、`Hght`/`height`→Height (Photoshop)=14、`hardMix`→Hard Mix (Photoshop)=10；其余模式按 Krita 枚举映射（`Mul `→0、`Sbtr`→1、`Ovrl`→5 等）；未知回退 0 + 警告 | ✅ |
-| `textureBrightness`（PS -150..150） | `Texture/Pattern/Brightness` | 所有模式统一：`round(0.10-v/250,2)`；clamp [-1,1] | ✅ |
-| `textureContrast`（PS -50..100） | `Texture/Pattern/Contrast` | 所有模式统一使用 PS 中心因子；round 到 0.01 并 clamp [0,2] | ✅ |
-| `TxtC` / `interpretation` | — | Krita 无对应，静默忽略（源文件默认值） | ⚠️ |
-| `protectTexture` | — | Krita 无对应，保留轻量警告 | ⚠️ |
+| `Txtr.Idnt` | Resource lookup | Match `patt` record by UUID; embed PNG | ✅ |
+| `Txtr.Nm` | `Name` / `PatternFileName` | Safe filename `tex_<first 8 chars of uuid>.png` | ✅ |
+| PNG bytes | `PatternMD5Sum` | MD5 hex (`PatternMD5` left empty to work around a binary-writing bug in Krita 5.0) | ✅ |
+| `textureScale` (%) | `Texture/Pattern/Scale` | `textureScale/100`, clamp [0.01, 10] | ✅ (user confirmed consistency) |
+| `textureDepth` (%) | `Texture/Strength/Value` | `textureDepth/100` (0..1) | ✅ |
+| `textureDepthDynamics.bVTy==2` | `PressureTexture/Strength/` + `Texture/Strength/UseCurve` | `true` + `true` (pressure curve; minimum value below) | ✅ |
+| `textureDepthDynamics.bVTy==0` | `PressureTexture/Strength/` + `Texture/Strength/UseCurve` | `true` + `false` (effect enabled, no sensor; constant `Value`) | ✅ |
+| `textureDepthDynamics.Mnm` | `Texture/Strength/commonCurve` | `0,{Mnm/100};1,1;` (only when `bVTy==2`) | ✅ |
+| `InvT` | `Texture/Pattern/Invert` | Direct | ✅ |
+| `textureBlendMode` | `Texture/Pattern/TexturingMode` | Prefer Krita's Photoshop modes: `linearHeight` → Linear Height (Photoshop)=15, `Hght` / `height` → Height (Photoshop)=14, `hardMix` → Hard Mix (Photoshop)=10; map other modes using Krita's enum (`Mul `→0, `Sbtr`→1, `Ovrl`→5, etc.); unknown modes fall back to 0 + warning | ✅ |
+| `textureBrightness` (PS -150..150) | `Texture/Pattern/Brightness` | All modes: `round(0.10-v/250,2)`; clamp [-1,1] | ✅ |
+| `textureContrast` (PS -50..100) | `Texture/Pattern/Contrast` | All modes use the Photoshop center factor; round to 0.01 and clamp [0,2] | ✅ |
+| `TxtC` / `interpretation` | — | No Krita equivalent; silently ignored (source file default value) | ⚠️ |
+| `protectTexture` | — | No Krita equivalent; retain a lightweight warning | ⚠️ |
 
-> 亮/对比度映射依据 Krita `KisTextureMaskInfo::recalculateMask()` 与 `research/测试结果2`、`research/krita结果`：
-> 所有模式统一使用普通校准（Linear Height (Photoshop) 曾用 0.30 基线/对比度倒数的特殊映射，实测效果不好，2026-08-27 确认取消）。
-> Krita UI 只能精确到两位小数，所有值必须先四舍五入到 0.01 再验证。
+> Brightness/contrast mapping is based on Krita's `KisTextureMaskInfo::recalculateMask()` and `research/test results 2` / `research/Krita results`:
+> all modes use the standard calibration. Linear Height (Photoshop) previously used a special mapping with a 0.30 baseline / inverse contrast, but tests showed poor results, so this was canceled on 2026-08-27.
+> Krita's UI is precise only to two decimal places; round all values to 0.01 before validating.
 
-## 8. 控制源编码（bVTy → Krita 传感器）
+## 8. Control Source Encoding (`bVTy` → Krita Sensor)
 
-| bVTy | Photoshop | Krita 传感器 | 状态 |
+| `bVTy` | Photoshop | Krita sensor | Status |
 |------|-----------|--------------|------|
-| 0 | 关 | 无 | ✅ |
-| 1 | 渐隐 | 无对应（未映射） | ⛔ |
-| 2 | 压力 | `pressure` | ✅ |
-| 3 | 倾斜 | `tilt`（预留，未启用） | ⛔ |
-| 4 | 转轮 | 无对应 | ⛔ |
-| 5 | 旋转随机 | 无对应（未映射；jitter>0 时在 GUI 提示） | ⛔ |
-| 6 / 7 | 初始方向/方向 | `drawingangle` | ✅ |
+| 0 | Off | None | ✅ |
+| 1 | Fade | No equivalent (not mapped) | ⛔ |
+| 2 | Pressure | `pressure` | ✅ |
+| 3 | Tilt | `tilt` (reserved, not enabled) | ⛔ |
+| 4 | Wheel | No equivalent | ⛔ |
+| 5 | Rotation random | No equivalent (not mapped; GUI warns when jitter > 0) | ⛔ |
+| 6 / 7 | Initial direction / direction | `drawingangle` | ✅ |
 
-## 9. 去重规则
+## 9. Deduplication Rules
 
-- 完全重复的预设（同名 + 同 UUID + 同 Dmtr）只保留首个。当前文件因此去掉 1 个重复的「淘宝店」横幅笔刷（20 → 19）。
+- Fully duplicate presets (same name + same UUID + same `Dmtr`) keep only the first. In the current file, this removes one duplicate “淘宝店” banner brush (20 → 19).

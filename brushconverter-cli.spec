@@ -1,7 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""brushconverter-cli 打包配置（PyInstaller --onedir）。
+"""brushconverter-cli packaging config (PyInstaller --onedir).
 
-用法（在项目根目录）:
+Usage (from the project root):
     pyinstaller brushconverter-cli.spec
 """
 block_cipher = None

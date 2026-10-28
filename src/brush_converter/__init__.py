@@ -1,3 +1,3 @@
-"""brush_converter: Photoshop (.abr) 到 Krita (.kpp/.bundle) 的笔刷转换工具集。"""
+"""brush_converter: brush conversion toolkit from Photoshop (.abr) to Krita (.kpp/.bundle)."""
 
 __version__ = "1.1.1"

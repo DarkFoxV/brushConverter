@@ -1,29 +1,32 @@
-"""ABR patt 区段（纹理图案）解析。
+"""ABR patt section (texture pattern) parsing.
 
-格式为实测逆向（对照 psd-tools 的 Pattern / VirtualMemoryArrayList 结构，
-并在此基础上修正 ABR 的差异点）：
+The format was reverse-engineered from observed data (compared against the
+Pattern / VirtualMemoryArrayList structure of psd-tools, with corrections for
+ABR's differences on that basis):
 
-    patt 区段 = 若干条「长度前缀」的 Pattern 记录，每条 pad 到 4 字节：
-        u32 len | 记录体（len 字节） | pad 到 4
+    patt section = several "length-prefixed" Pattern records, each padded to 4 bytes:
+        u32 len | record body (len bytes) | pad to 4
 
-    记录体：
-        u32 version(=1) | u32 颜色模式(3=RGB, 1=灰度) | 2×i16 (宽,高 提示) |
-        u32 名字符数(含结尾 NUL 字符) | 名字 UTF-16BE（NUL 算 1 个字符） |
-        u8 名字节数(=36) | UUID(ASCII) |
-        VMA 列表: u32 version(=3) | u32 body_len | body {
-            u32×4 矩形(top,left,bottom,right) | u32 通道数 | (通道数+2) 个通道块 }
+    Record body:
+        u32 version(=1) | u32 color mode(3=RGB, 1=grayscale) | 2×i16 (width, height hint) |
+        u32 name char count (including the trailing NUL) | name UTF-16BE (NUL counts as 1 char) |
+        u8 name byte length(=36) | UUID(ASCII) |
+        VMA list: u32 version(=3) | u32 body_len | body {
+            u32×4 rect(top,left,bottom,right) | u32 channel count | (channel count+2) channel blocks }
 
-    通道块：
-        u32 is_written(0=空) | u32 len | u32 depth(位深) | u32×4 矩形 |
-        u16 pixel_depth | u8 compression(0=RAW, 1=RLE) | 数据(len-23)
+    Channel block:
+        u32 is_written(0=empty) | u32 len | u32 depth(bit depth) | u32×4 rect |
+        u16 pixel_depth | u8 compression(0=RAW, 1=RLE) | data(len-23)
 
-    RLE(1) 为 PSD 版：先是 height 个 u16 行字节数，随后每行是 PackBits 流。
+    RLE(1) is the PSD variant: first height u16 row byte counts, then a PackBits stream per row.
 
-    注意：
-    - ABR 中图案 id 用 u8 长度 + ASCII UUID（psd-tools 的 PSD Pattern 是
-      Pascal 字符串，二者不同）；名字符数包含结尾 NUL。
-    - 图案按 UUID 关联笔刷预设（desc 的 Txtr.Idnt），不能按名字
-      （本仓库样本有 3 张同名 "Shape 2.png" 但内容不同）。
+    Notes:
+    - In ABR the pattern id uses a u8 length + ASCII UUID (psd-tools' PSD Pattern
+      uses a Pascal string; the two differ); the name char count includes the
+      trailing NUL.
+    - Patterns are linked to brush presets by UUID (Txtr.Idnt in desc), not by name
+      (this repo's samples contain 3 patterns all named "Shape 2.png" with
+      different contents).
 """
 
 from __future__ import annotations
@@ -33,7 +36,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-MAX_SIZE = 30000  # 与 samp 区同量级的保护上限
+MAX_SIZE = 30000  # protective cap on the same order as the samp section
 
 
 class PatternParseError(ValueError):
@@ -42,10 +45,10 @@ class PatternParseError(ValueError):
 
 @dataclass
 class PatternTexture:
-    """一个 Photoshop 纹理图案。
+    """A Photoshop texture pattern.
 
-    image : uint8 数组。color_mode=3 → (h, w, 3) RGB；color_mode=1 → (h, w) 灰度。
-            像素值为原样（无 ABR 笔尖那种 255-raw 反转）。
+    image : uint8 array. color_mode=3 -> (h, w, 3) RGB; color_mode=1 -> (h, w) grayscale.
+            Pixel values are as-is (no 255-raw inversion like ABR brush tips).
     """
 
     name: str
@@ -54,7 +57,7 @@ class PatternTexture:
     width: int
     height: int
     color_mode: int
-    compression: int = 0  # 首通道压缩方式（0=RAW, 1=RLE），仅作参考
+    compression: int = 0  # first channel's compression (0=RAW, 1=RLE), reference only
 
 
 def _u32(data: bytes, off: int) -> int:
@@ -66,18 +69,18 @@ def _u16(data: bytes, off: int) -> int:
 
 
 def _rle_decode_u16(buf: bytes, expected_size: int, height: int) -> bytes:
-    """PSD 版 RLE 解码：height 个 u16 行字节数 + 每行 PackBits。"""
+    """PSD variant RLE decoding: height u16 row byte counts + PackBits per row."""
     if len(buf) < height * 2:
-        raise PatternParseError("RLE 行长度表被截断")
+        raise PatternParseError("RLE row-length table truncated")
     counts = struct.unpack_from(f">{height}H", buf, 0)
     offset = height * 2
     out = bytearray()
     for line_len in counts:
         if line_len <= 0:
-            raise PatternParseError(f"非法扫描行长度: {line_len}")
+            raise PatternParseError(f"Invalid scanline length: {line_len}")
         line_end = offset + line_len
         if line_end > len(buf):
-            raise PatternParseError("RLE 数据被截断")
+            raise PatternParseError("RLE data truncated")
         j = offset
         while j < line_end:
             n = buf[j]
@@ -89,48 +92,48 @@ def _rle_decode_u16(buf: bytes, expected_size: int, height: int) -> bytes:
                     continue
                 run = -n + 1
                 if j + 1 > line_end:
-                    raise PatternParseError("RLE 解码越界（重复段）")
+                    raise PatternParseError("RLE decode out of bounds (repeat run)")
                 out.extend(bytes([buf[j]]) * run)
                 j += 1
             else:
                 run = n + 1
                 if j + run > line_end:
-                    raise PatternParseError("RLE 解码越界（字面量段）")
+                    raise PatternParseError("RLE decode out of bounds (literal run)")
                 out.extend(buf[j : j + run])
                 j += run
         offset = line_end
     if len(out) != expected_size:
         raise PatternParseError(
-            f"RLE 解码尺寸不符: 得到 {len(out)}, 期望 {expected_size}"
+            f"RLE decoded size mismatch: got {len(out)}, expected {expected_size}"
         )
     return bytes(out)
 
 
 def _decode_channel(data: bytes, depth: int, width: int, height: int,
                     compression: int) -> np.ndarray:
-    """解压单通道为 (height, width) uint8。"""
+    """Decompress a single channel to (height, width) uint8."""
     if depth != 8:
-        raise PatternParseError(f"不支持的通道位深: {depth} bits")
+        raise PatternParseError(f"Unsupported channel bit depth: {depth} bits")
     size = width * height
     if compression == 0:
         if len(data) < size:
-            raise PatternParseError("RAW 通道数据被截断")
+            raise PatternParseError("RAW channel data truncated")
         raw = data[:size]
     elif compression == 1:
         raw = _rle_decode_u16(data, size, height)
     else:
-        raise PatternParseError(f"不支持的通道压缩方式: {compression}")
+        raise PatternParseError(f"Unsupported channel compression: {compression}")
     return np.frombuffer(raw, dtype=np.uint8).reshape(height, width)
 
 
 def _parse_vma_channels(body: bytes, want: int):
-    """解析 VMA body，返回 (矩形, 通道数, 前 want 个有数据的通道)。
+    """Parse a VMA body, returning (rect, channel count, the first want channels with data).
 
-    通道块按出现顺序收集；RGB 取前 3 个、灰度取第 1 个，其余 is_written=0
-    的空块直接跳过。
+    Channel blocks are collected in order of appearance; for RGB take the first 3,
+    for grayscale take the 1st, skipping empty blocks with is_written=0.
     """
     if len(body) < 20:
-        raise PatternParseError("VMA body 过短")
+        raise PatternParseError("VMA body too short")
     rect = struct.unpack_from(">4I", body, 0)
     nchans = _u32(body, 16)
     b = 20
@@ -149,7 +152,7 @@ def _parse_vma_channels(body: bytes, want: int):
         if length == 0:
             continue
         if length < 23:
-            raise PatternParseError(f"通道长度非法: {length}")
+            raise PatternParseError(f"Invalid channel length: {length}")
         depth = _u32(body, b)
         crect = struct.unpack_from(">4I", body, b + 4)
         pixel_depth, compression = struct.unpack_from(">HB", body, b + 20)
@@ -162,9 +165,10 @@ def _parse_vma_channels(body: bytes, want: int):
 
 
 def parse_patterns(data: bytes) -> dict[str, PatternTexture]:
-    """解析整个 patt 区段，返回 {uuid: PatternTexture}。
+    """Parse the entire patt section, returning {uuid: PatternTexture}.
 
-    游标必须精确走完区段（每条记录 4 字节对齐），否则视为格式错误。
+    The cursor must consume the section exactly (each record 4-byte aligned),
+    otherwise it is treated as a format error.
     """
     out: dict[str, PatternTexture] = {}
     pos = 0
@@ -172,62 +176,62 @@ def parse_patterns(data: bytes) -> dict[str, PatternTexture]:
     while pos + 4 <= len(data):
         length = _u32(data, pos)
         if length <= 0:
-            raise PatternParseError(f"图案记录长度非法: {length} @ {pos}")
+            raise PatternParseError(f"Invalid pattern record length: {length} @ {pos}")
         record_end = pos + 4 + length
         if record_end > len(data):
             raise PatternParseError(
-                f"图案记录越界: @{pos} len={length} 超出区段")
+                f"Pattern record out of bounds: @{pos} len={length} exceeds section")
         p = pos + 4
         version = _u32(data, p)
         if version != 1:
-            raise PatternParseError(f"未知图案版本: {version} (pattern {index})")
+            raise PatternParseError(f"Unknown pattern version: {version} (pattern {index})")
         p += 4
         color_mode = _u32(data, p)
         p += 4
-        p += 4  # 2×i16 point（宽高提示，以 VMA 矩形为准）
+        p += 4  # 2×i16 point (width/height hint; the VMA rect is authoritative)
         name_chars = _u32(data, p)
         p += 4
         if not (1 <= name_chars <= 4096) or p + name_chars * 2 > record_end:
-            raise PatternParseError(f"图案名字长度非法: {name_chars} @ {p}")
+            raise PatternParseError(f"Invalid pattern name length: {name_chars} @ {p}")
         name = data[p : p + name_chars * 2].decode("utf-16-be", "replace")
         name = name.rstrip("\x00")
         p += name_chars * 2
         id_len = data[p]
         p += 1
         if not (16 <= id_len <= 64) or p + id_len > record_end:
-            raise PatternParseError(f"图案 id 长度非法: {id_len}")
+            raise PatternParseError(f"Invalid pattern id length: {id_len}")
         uuid = data[p : p + id_len].decode("ascii", "replace")
         p += id_len
 
         if p + 8 > record_end:
-            raise PatternParseError("缺少 VMA 列表头")
+            raise PatternParseError("Missing VMA list header")
         vma_version = _u32(data, p)
         if vma_version != 3:
-            raise PatternParseError(f"未知 VMA 版本: {vma_version} (pattern {index})")
+            raise PatternParseError(f"Unknown VMA version: {vma_version} (pattern {index})")
         body_len = _u32(data, p + 4)
         body = data[p + 8 : p + 8 + body_len]
         if len(body) != body_len:
-            raise PatternParseError("VMA 列表长度越界")
+            raise PatternParseError("VMA list length out of bounds")
 
         want = {1: 1, 3: 3}.get(color_mode)
         if want is None:
-            raise PatternParseError(f"不支持的图案颜色模式: {color_mode}")
+            raise PatternParseError(f"Unsupported pattern color mode: {color_mode}")
         rect, nchans, chans = _parse_vma_channels(body, want)
         if len(chans) < want:
             raise PatternParseError(
-                f"图案通道不足: 需要 {want} 个，实际 {len(chans)} (pattern {index})")
+                f"Not enough pattern channels: need {want}, got {len(chans)} (pattern {index})")
 
         width = rect[3] - rect[1]
         height = rect[2] - rect[0]
         if not (1 <= width <= MAX_SIZE and 1 <= height <= MAX_SIZE):
-            raise PatternParseError(f"图案尺寸越界: {width}x{height}")
+            raise PatternParseError(f"Pattern size out of bounds: {width}x{height}")
 
         planes = []
         for depth, crect, compression, cdata in chans[:want]:
             w = crect[3] - crect[1]
             h = crect[2] - crect[0]
             if (w, h) != (width, height):
-                raise PatternParseError(f"通道矩形与图案不一致: {crect}")
+                raise PatternParseError(f"Channel rect does not match pattern: {crect}")
             planes.append(_decode_channel(cdata, depth, w, h, compression))
         if want == 3:
             image = np.stack(planes, axis=-1)
@@ -244,5 +248,5 @@ def parse_patterns(data: bytes) -> dict[str, PatternTexture]:
 
     if pos != len(data):
         raise PatternParseError(
-            f"patt 区段解析未对齐: 停在 {pos}, 区段长度 {len(data)}")
+            f"patt section parse misaligned: stopped at {pos}, section length {len(data)}")
     return out

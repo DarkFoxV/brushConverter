@@ -1,63 +1,63 @@
-# ABR → KPP 笔刷转换器 — 可行性报告与项目结构
+# ABR → KPP Brush Converter — Feasibility Report and Project Structure
 
-> 阶段 1 交付物 | 调研日期：2026-08-24
-> 结论：**可行**，针对采样笔尖（sampled tips）可做到高保真转换；参数化笔刷动态需近似映射。
+> Phase 1 deliverable | Research date: 2026-08-24
+> Conclusion: **Feasible**. High-fidelity conversion is achievable for sampled brush tips; parameterized brush dynamics require approximate mapping.
 
----
+## 1. Key Conclusions
 
-## 1. 核心结论
-
-| 目标 | 可行性 | 说明 |
+| Goal | Feasibility | Notes |
 |------|--------|------|
-| 提取 ABR 中的采样笔尖位图 | ✅ 完全可行 | 格式已被逆向并有多份开源实现参考 |
-| 生成 Krita 可用的 .kpp 预设 | ✅ 完全可行 | 已下载真实 .kpp 验证结构：PNG + zTXt 内嵌 XML |
-| 打包为 Krita .bundle 资源包 | ✅ 完全可行 | ZIP 容器，Krita 官方导入格式 |
-| 笔刷动态参数（压感曲线等）1:1 迁移 | ⚠️ 部分可行 | ABR 的 desc 描述符可解析，但两软件参数模型不同，只能近似映射 |
-| 纹理（pattern）迁移 | ⚠️ 可行但后置 | 'patt' 块格式有公开文档，列为后期增强 |
-| 图形界面 + 打包 exe | ✅ 完全可行 | PySide6 + PyInstaller 成熟方案 |
+| Extract sampled-tip bitmaps from ABR | ✅ Fully feasible | Format reverse-engineered, with several open-source implementations for reference |
+| Generate usable Krita `.kpp` presets | ✅ Fully feasible | Structure verified using a real `.kpp`: PNG + embedded XML in `zTXt` |
+| Package as a Krita `.bundle` resource bundle | ✅ Fully feasible | ZIP container; official Krita import format |
+| Migrate brush dynamics parameters (e.g. pressure curves) 1:1 | ⚠️ Partially feasible | ABR `desc` descriptors can be parsed, but the two applications use different parameter models, so only approximate mapping is possible |
+| Migrate textures (`pattern`) | ⚠️ Feasible, but deferred | The `patt` block format is documented publicly; planned as a later enhancement |
+| GUI + packaged executable | ✅ Fully feasible | Mature PySide6 + PyInstaller solution |
 
-## 2. ABR 格式调研结果
+## 2. ABR Format Research Findings
 
-文件头为 2 字节大端主版本 + 2 字节次版本，之后分两大类：
+The file header contains a 2-byte big-endian major version and a 2-byte minor version, followed by one of two broad layouts.
 
-### 2.1 旧格式（v1/v2，Photoshop ≤ 7）
-- Adobe 官方文档有记载（Photoshop File Formats Specification）
-- 结构简单：`brush count` + 每支笔的（尺寸 + 8bit 灰度位图，可选 RLE 压缩）
-- 解析难度：**低**
+### 2.1 Legacy Format (v1/v2, Photoshop ≤ 7)
+- Documented in Adobe's official *Photoshop File Formats Specification*.
+- Simple structure: `brush count` followed by each brush's dimensions and 8-bit grayscale bitmap, optionally RLE-compressed.
+- Parsing difficulty: **Low**.
 
-### 2.2 新格式（v6+，Photoshop 7 ~ CC）
-从偏移 4 开始是一系列 8BIM 标签块（结构公开）：
+### 2.2 New Format (v6+, Photoshop 7–CC)
+
+Starting at offset 4, the file contains a series of 8BIM tagged blocks (publicly documented):
 
 ```
 [version(2B)][subversion(2B)]
-[8BIM][samp][length][...]   ← 采样笔尖位图
-[8BIM][patt][length][...]   ← 纹理图案
-[8BIM][desc][length][...]   ← 描述符（笔刷参数、笔尖与参数的关联）
+[8BIM][samp][length][...]   ← sampled-tip bitmap
+[8BIM][patt][length][...]   ← texture pattern
+[8BIM][desc][length][...]   ← descriptor (brush parameters, tip/parameter associations)
 ```
 
-- **v6.1**：`samp` 内每项 = Pascal 字符串 ID + 矩形 + 深度 + 压缩模式 + 位图数据（RLE，算法与 PSD 相同）
-- **v6.2**：`samp` 内每项 = ID + 虚拟内存数组列表（较复杂，但 GIMP 已有成熟解析实现可参考）
-- `desc` 为 Photoshop 描述符结构（在 PSD 规范中有文档），存储新版笔刷的完整动态参数
-- 解析难度：**中**（v6.1 低；v6.2 需要参考 GIMP 源码）
+- **v6.1**: each `samp` item = Pascal-string ID + rectangle + depth + compression mode + bitmap data (RLE, same algorithm as PSD).
+- **v6.2**: each `samp` item = ID + virtual-memory-array list (more complex, but GIMP has a mature implementation to reference).
+- `desc` uses Photoshop's descriptor structure (documented in the PSD specification) and stores the full dynamic parameters of newer brushes.
+- Parsing difficulty: **Medium** (low for v6.1; v6.2 requires reference to GIMP source code).
 
-### 2.3 参考实现（开源，供学习格式用）
-| 项目 | 语言 | 覆盖范围 |
+### 2.3 Reference Implementations (Open Source; for Learning the Format)
+
+| Project | Language | Coverage |
 |------|------|----------|
-| GIMP `file-abr` 插件 | C | 最完整：v1/v2/v6.1/v6.2 全支持 |
-| abrViewer | C# | v6.1 位图提取 |
-| nijiGPen `file_formats.py` | Python + numpy | v1/v2 + v6 位图提取，代码量小，最值得借鉴的 Python 范例 |
+| GIMP `file-abr` plugin | C | Most complete: full v1/v2/v6.1/v6.2 support |
+| abrViewer | C# | v6.1 bitmap extraction |
+| nijiGPen `file_formats.py` | Python + numpy | v1/v2 + v6 bitmap extraction; small codebase and the most useful Python example |
 
-## 3. KPP 格式调研结果（已实测验证）
+## 3. KPP Format Research Findings (Verified in Practice)
 
-下载了 Krita 官方仓库的真实预设 `AutoBrush_70px_rotated.kpp` 并解析成功：
+A real preset, `AutoBrush_70px_rotated.kpp`, was downloaded from the official Krita repository and parsed successfully:
 
 ```
-.kpp = PNG 图像（预览缩略图，200×200 推荐）
-     + zTXt 块（keyword="preset"，zlib 压缩的 XML）
-     + tEXt 块（"version" 等）
+.kpp = PNG image (preview thumbnail; 200×200 recommended)
+     + zTXt chunk (keyword="preset", zlib-compressed XML)
+     + tEXt chunk ("version", etc.)
 ```
 
-解出的 XML 核心结构：
+Core XML structure:
 
 ```xml
 <Preset name="..." paintopid="paintbrush">
@@ -67,93 +67,93 @@
     </Brush>
   ]]></param>
   <param name="CurveOpacity"><![CDATA[0,0;1,1;]]></param>
-  ...（压感曲线、传感器等参数）
+  ... (pressure curves, sensors, and other parameters)
 </Preset>
 ```
 
-**关键发现（决定架构）**：Krita 5.x（BrushVersion=2）中，图像笔尖**不再内嵌**在 kpp 里，而是以 `filename` + `md5sum` 属性引用资源系统中的独立笔尖文件（GBR/GIH）。因此转换器需要同时产出：
+**Key discovery (architecturally important):** In Krita 5.x (`BrushVersion=2`), image tips are **no longer embedded** in the `.kpp`. Instead, the preset references a separate tip file (GBR/GIH) in the resource system using `filename` + `md5sum`. Therefore, the converter needs to produce:
 
-1. **GBR 笔尖文件**——GIMP 笔刷格式，Krita 原生加载。头部布局已从 Krita 源码 `kis_gbr_brush.cpp` 确认：`header_size, version(=2), width, height, bytes(=1 灰度), magic("GIMP"), spacing` 全大端 uint32 + null 结尾的名称 + 位图数据。
-2. **.kpp 预设**——PNG(预览) + zTXt(XML)，XML 中引用上述 GBR。
-3. **.bundle 资源包**——ZIP（含 `mimetype`、`META-INF/manifest.xml`、`meta.xml`、`paintoppresets/*.kpp`、笔尖文件），Krita 一步导入。这是最终交付给用户的形态。
+1. **GBR tip file** — GIMP brush format, loaded natively by Krita. Header layout confirmed in Krita source `kis_gbr_brush.cpp`: `header_size, version(=2), width, height, bytes(=1 grayscale), magic("GIMP"), spacing` are all big-endian uint32 values, followed by a null-terminated name and bitmap data.
+2. **`.kpp` preset** — PNG preview + `zTXt` XML; the XML references the GBR above.
+3. **`.bundle` resource bundle** — ZIP containing `mimetype`, `META-INF/manifest.xml`, `meta.xml`, `paintoppresets/*.kpp`, and the tip file. This is the final format delivered to users for one-step import into Krita.
 
-## 4. 转换管线设计
+## 4. Conversion Pipeline Design
 
 ```
-.abr ──► 解析器 ──► [笔尖位图] ──► 灰度整理/边缘清理 ──► GBR 笔尖
-              │                                            │
-              └─► [desc 参数] ──► 参数映射表 ──► 预设 XML ──┤
-                                                           ▼
-                                          .kpp (PNG+zTXt) ──► .bundle ──► Krita 导入
+.abr ──► parser ──► [tip bitmap] ──► grayscale preparation / edge cleanup ──► GBR tip
+              │                                                        │
+              └─► [desc parameters] ──► parameter map ──► preset XML ──┤
+                                                                       ▼
+                                                     .kpp (PNG+zTXt) ──► .bundle ──► import into Krita
 ```
 
-参数映射策略（初始版本）：
-- 笔尖位图 → `paintbrush` 引擎 + 图像笔尖，spacing 取 ABR 值或默认 0.25
-- 尺寸/间距/角度 → 直接映射
-- 压感不透明度/大小 → 映射到 Krita 的 OpacitySensor/SizeSensor 曲线
-- 无法映射的动态（散布、双笔尖、湿边等）→ 使用合理默认值，并在 GUI 中标注"部分转换"
+Initial parameter-mapping strategy:
+- Brush-tip bitmap → `paintbrush` engine + image tip; use ABR spacing or default to 0.25.
+- Size / spacing / angle → direct mapping.
+- Pressure opacity / size → map to Krita `OpacitySensor` / `SizeSensor` curves.
+- Dynamics that cannot be mapped (scatter, dual brush, wet edges, etc.) → use reasonable defaults and mark as “partial conversion” in the GUI.
 
-## 5. 已验证的环境
+## 5. Verified Environment
 
-- conda 环境：`D:\program\anaconda3\envs\brushConverter`，Python **3.12.13** ✅
-- 依赖规划（均成熟、纯 pip 安装）：
-  - `numpy`（位图数组运算）
-  - `Pillow`（PNG 读写、预览图生成；PNG 文本块可自写以控制 zTXt 压缩格式）
-  - `PySide6`（GUI）
-  - `PyInstaller`（打包 exe）
-  - `pytest`（测试）
-- 无任何需要 C 扩展编译或闭源组件的环节
+- Conda environment: `D:\program\anaconda3\envs\brushConverter`, Python **3.12.13** ✅
+- Planned dependencies (all mature and installable with pip):
+  - `numpy` (bitmap array operations)
+  - `Pillow` (PNG I/O and preview generation; PNG text chunks can be written manually to control `zTXt` compression)
+  - `PySide6` (GUI)
+  - `PyInstaller` (packaging executable)
+  - `pytest` (tests)
+- No steps require compiling C extensions or using closed-source components.
 
-## 6. 推荐项目结构
+## 6. Recommended Project Structure
 
 ```
 brushConverter/
-├── docs/                        # 文档
-│   ├── feasibility.md           # 本报告
-│   └── format_notes/            # 格式笔记（ABR/GBR/KPP 字段表）
-├── research/                    # 调研材料（真实样本、Krita 源码参考）
-├── src/brush_converter/         # 核心包（纯逻辑，不依赖 GUI）
+├── docs/                        # Documentation
+│   ├── feasibility.md           # This report
+│   └── format_notes/            # ABR/GBR/KPP format notes and field tables
+├── research/                    # Research material (real samples, Krita source references)
+├── src/brush_converter/         # Core package (pure logic, no GUI dependency)
 │   ├── abr/
-│   │   ├── reader.py            # 头/8BIM section 分发
-│   │   ├── samples.py           # v1/v2/v6.1/v6.2 位图提取
-│   │   ├── descriptors.py       # desc 参数解析
-│   │   └── patterns.py          # patt 提取（后期）
+│   │   ├── reader.py            # Header / 8BIM section dispatch
+│   │   ├── samples.py           # v1/v2/v6.1/v6.2 bitmap extraction
+│   │   ├── descriptors.py       # `desc` parameter parsing
+│   │   └── patterns.py          # `patt` extraction (later)
 │   ├── kpp/
-│   │   ├── gbr_writer.py        # 灰度位图 → GBR
-│   │   ├── preset_xml.py        # 预设 XML 生成（模板+参数映射）
-│   │   ├── kpp_writer.py        # PNG + zTXt 组装
-│   │   └── bundle.py            # .bundle ZIP 打包
-│   ├── mapping.py               # ABR 参数 → Krita 参数映射表
-│   └── convert.py               # 管线编排（单文件→bundle）
+│   │   ├── gbr_writer.py        # Grayscale bitmap → GBR
+│   │   ├── preset_xml.py        # Preset XML generation (template + parameter mapping)
+│   │   ├── kpp_writer.py        # PNG + `zTXt` assembly
+│   │   └── bundle.py            # `.bundle` ZIP packaging
+│   ├── mapping.py               # ABR → Krita parameter mapping table
+│   └── convert.py               # Pipeline orchestration (single file → bundle)
 ├── gui/
-│   ├── __main__.py              # 入口
-│   ├── main_window.py           # 主窗口（拖入 abr、笔尖预览、批量转换）
-│   └── workers.py               # QThread 后台转换
-├── tests/                       # pytest + 小型真实样本 fixtures
-├── cli.py                       # 命令行入口（先于 GUI 实现，便于调试）
+│   ├── __main__.py              # Entry point
+│   ├── main_window.py           # Main window (drop ABR, tip preview, batch conversion)
+│   └── workers.py               # Background conversion with QThread
+├── tests/                       # pytest + small real-sample fixtures
+├── cli.py                       # CLI entry point (implement before GUI for easier debugging)
 ├── requirements.txt
 └── pyproject.toml
 ```
 
-设计原则：**核心转换逻辑与 GUI 完全解耦**（gui/ 和 cli.py 都是薄壳），方便测试与后续扩展。
+Design principle: **Keep core conversion logic completely decoupled from the GUI** (`gui/` and `cli.py` should be thin wrappers), enabling testing and future extension.
 
-## 7. 分阶段实施计划
+## 7. Phased Implementation Plan
 
-| 阶段 | 内容 | 交付物 | 验收标准 |
-|------|------|--------|----------|
-| 1 ✅ | 格式调研、结构设计 | 本报告 + 目录骨架 | — |
-| 2 | ABR 解析器（v1/v2 → v6.1 → v6.2）+ cli.py | 能导出笔尖 PNG 的命令行工具 | 对真实 .abr 提取出全部笔尖位图 |
-| 3 | KPP/GBR/bundle 生成器 | 完整转换管线 | 生成的 .bundle 在 Krita 5.x 中导入成功并可用 |
-| 4 | GUI（PySide6） | 图形界面 | 拖拽/批量转换、笔尖预览、进度与错误提示 |
-| 5 | 打包发布 | PyInstaller exe | 无 Python 环境的机器可运行 |
+| Phase | Content | Deliverable | Acceptance criteria |
+|------|----------|-------------|---------------------|
+| 1 ✅ | Format research, structural design | This report + directory skeleton | — |
+| 2 | ABR parser (v1/v2 → v6.1 → v6.2) + `cli.py` | CLI tool that exports brush-tip PNGs | Extract all tip bitmaps from real `.abr` files |
+| 3 | KPP/GBR/bundle generator | Complete conversion pipeline | Generated `.bundle` imports successfully and works in Krita 5.x |
+| 4 | GUI (PySide6) | Graphical interface | Drag-and-drop / batch conversion, tip preview, progress and error reporting |
+| 5 | Packaging and release | PyInstaller executable | Runs on machines without Python installed |
 
-每个阶段结束用真实笔刷文件做回归测试（收集 Photoshop 各年代导出的样本放入 `tests/fixtures/`）。
+At the end of each phase, run regression tests using real brush files (collect samples exported from different Photoshop eras in `tests/fixtures/`).
 
-## 8. 风险与对策
+## 8. Risks and Mitigations
 
-| 风险 | 等级 | 对策 |
+| Risk | Level | Mitigation |
 |------|------|------|
-| v6.2 虚拟内存数组解析复杂 | 中 | 参考 GIMP `file-abr` C 实现；先支持 v6.1，v6.2 迭代补充 |
-| 现代 PS 笔刷大量参数化动态无法 1:1 映射 | 中 | 接受近似映射；GUI 中明确标注转换保真度 |
-| Krita 各版本对 kpp/XML 字段兼容差异 | 低 | 以 Krita 5.x 为基准（BrushVersion=2），实测验证 |
-| PNG zTXt 写入格式细节 | 低 | 已验证可手工构造 PNG 块；用二进制比对官方 kpp 校验 |
+| Complex v6.2 virtual-memory-array parsing | Medium | Refer to GIMP `file-abr` C implementation; support v6.1 first and add v6.2 iteratively |
+| Modern Photoshop brushes contain many dynamics that cannot be mapped 1:1 | Medium | Accept approximate mapping; clearly label conversion fidelity in the GUI |
+| KPP/XML fields differ across Krita versions | Low | Target Krita 5.x (`BrushVersion=2`) and verify empirically |
+| Details of PNG `zTXt` writing | Low | Manual PNG chunk construction has been verified; compare binary output against official KPP samples |

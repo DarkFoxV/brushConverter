@@ -1,55 +1,16 @@
-"""GUI 多语言支持（中文 / English）。
+"""GUI multilanguage support (English / Portuguese).
 
-轻量方案：不引入 Qt 翻译文件，使用键值字典 + 运行时重绘。
-当前语言保存在模块级，切换语言后由 MainWindow 重建界面文本。
+Lightweight approach: no Qt translation files, use key-value dictionaries + runtime redraw.
+Current language stored at module level; switching language rebuilds UI text via MainWindow.
 """
 
 from __future__ import annotations
 
 import re
 
-_LANG = "zh"
+_LANG = "en"
 
 _STRINGS: dict[str, dict[str, str]] = {
-    "zh": {
-        "window_title": "brushConverter — ABR → Krita 笔刷转换",
-        "open_abr": "打开 ABR 文件…",
-        "no_file": "未选择文件",
-        "brush_list": "笔刷预览（勾选要转换的笔刷）",
-        "select_all": "全选",
-        "select_none": "全不选",
-        "count": "共 {total} 支 · 已选 {sel} 支",
-        "output": "输出",
-        "format": "产物格式：",
-        "kpp": ".kpp（每支一个文件）",
-        "bundle": ".bundle（Krita 资源包）",
-        "out_dir": "输出目录：",
-        "browse": "浏览…",
-        "convert": "开始转换",
-        "computed_brush": "计算笔刷",
-        "sampled_brush": "采样笔刷",
-        "diameter": "直径 {d}px",
-        "warn_prefix": "⚠ 未映射：",
-        "list_sep": "、",
-        "colon": "：",
-        "select_abr": "选择 ABR 文件",
-        "abr_filter": "Photoshop 笔刷 (*.abr);;所有文件 (*)",
-        "parsing": "正在解析…",
-        "parse_failed": "解析失败",
-        "loaded": "已加载 {n} 支笔刷",
-        "select_out_dir": "选择输出目录",
-        "hint": "提示",
-        "need_select": "请至少勾选一支笔刷。",
-        "unmapped_title": "无法映射的参数",
-        "unmapped_body": "以下笔刷包含无法映射的参数，转换后将丢失这些效果：\n\n{lines}\n\n是否继续？",
-        "texture_hint_title": "纹理亮度/对比度提示",
-        "texture_hint_body": "检测到 {n} 支笔刷使用了纹理。\n\n当前纹理「亮度/对比度」为经验映射，可能不够准确，转换后请在 Krita 的纹理选项中手动微调亮度与对比度。\n\n是否继续？",
-        "converting": "正在转换…",
-        "convert_failed": "转换失败",
-        "done_status": "完成：{n} 支笔刷",
-        "done_title": "转换完成",
-        "done_body": "成功转换 {n} 支笔刷。\n\n输出位置：\n{paths}",
-    },
     "en": {
         "window_title": "brushConverter — ABR → Krita Brush Converter",
         "open_abr": "Open ABR File…",
@@ -89,24 +50,61 @@ _STRINGS: dict[str, dict[str, str]] = {
         "done_title": "Conversion Complete",
         "done_body": "Successfully converted {n} brushes.\n\nOutput location:\n{paths}",
     },
+    "pt": {
+        "window_title": "brushConverter — Conversor de pincéis ABR → Krita",
+        "open_abr": "Abrir arquivo ABR…",
+        "no_file": "Nenhum arquivo selecionado",
+        "brush_list": "Pré-visualização de pincéis (marque os que deseja converter)",
+        "select_all": "Selecionar tudo",
+        "select_none": "Desmarcar tudo",
+        "count": "{total} pincéis · {sel} selecionados",
+        "output": "Saída",
+        "format": "Formato de saída:",
+        "kpp": ".kpp (um arquivo por pincel)",
+        "bundle": ".bundle (pacote de recursos do Krita)",
+        "out_dir": "Diretório de saída:",
+        "browse": "Procurar…",
+        "convert": "Iniciar conversão",
+        "computed_brush": "Pincel calculado",
+        "sampled_brush": "Pincel amostrado",
+        "diameter": "Diâmetro {d}px",
+        "warn_prefix": "⚠ Não mapeado: ",
+        "list_sep": ", ",
+        "colon": ": ",
+        "select_abr": "Selecionar arquivo ABR",
+        "abr_filter": "Pincéis Photoshop (*.abr);;Todos os arquivos (*)",
+        "parsing": "Analisando…",
+        "parse_failed": "Falha na análise",
+        "loaded": "{n} pincéis carregados",
+        "select_out_dir": "Selecionar diretório de saída",
+        "hint": "Aviso",
+        "need_select": "Selecione pelo menos um pincel.",
+        "unmapped_title": "Parâmetros não mapeados",
+        "unmapped_body": "Estes pincéis contêm parâmetros que não podem ser mapeados e serão perdidos após a conversão:\n\n{lines}\n\nContinuar?",
+        "texture_hint_title": "Aviso de brilho/contraste de textura",
+        "texture_hint_body": "{n} pincel(is) usam textura.\n\nO mapeamento de \"Brilho/Contraste\" da textura é aproximado e pode não ser preciso. Após a conversão, ajuste manualmente brilho e contraste nas opções de textura do Krita.\n\nContinuar?",
+        "converting": "Convertendo…",
+        "convert_failed": "Falha na conversão",
+        "done_status": "Concluído: {n} pincéis",
+        "done_title": "Conversão concluída",
+        "done_body": "Convertidos com sucesso {n} pincéis.\n\nLocal de saída:\n{paths}",
+    },
 }
 
-# 未映射警告来自 mapping.py，中文固定文案；英文界面下显示时翻译。
-_WARNINGS_EN: dict[str, str] = {
-    "颜色动态": "Color dynamics",
-    "湿边": "Wet edges",
-    "喷嘴": "Airbrush / nozzle",
-    "笔刷姿态": "Brush pose",
-    "双笔刷": "Dual brush",
-    "纹理(图案缺失)": "Texture (pattern missing)",
-    "纹理(protectTexture 未映射)": "Texture (protectTexture not mapped)",
+# mapping.py emits warnings in English; shown as-is in English, translated for Portuguese UI.
+_WARNINGS_PT: dict[str, str] = {
+    "Wet Edges": "Bordas úmidas",
+    "Airbrush / Nozzle": "Aerógrafo / bico",
+    "Brush Pose": "Postura do pincel",
+    "Dual Brush": "Pincel duplo",
+    "Texture (pattern missing)": "Textura (padrão ausente)",
+    "Texture (protectTexture not mapped)": "Textura (protectTexture não mapeado)",
 }
 
 
 def set_language(lang: str) -> None:
-    """切换界面语言（'zh' / 'en'），非法值回退中文。"""
     global _LANG
-    _LANG = lang if lang in _STRINGS else "zh"
+    _LANG = lang if lang in _STRINGS else "en"
 
 
 def get_language() -> str:
@@ -114,9 +112,8 @@ def get_language() -> str:
 
 
 def tr(key: str, **kwargs) -> str:
-    """取当前语言的字符串，支持 {name} 占位符。"""
-    table = _STRINGS.get(_LANG, _STRINGS["zh"])
-    text = table.get(key, _STRINGS["zh"].get(key, key))
+    table = _STRINGS.get(_LANG, _STRINGS["en"])
+    text = table.get(key, _STRINGS["en"].get(key, key))
     if kwargs:
         try:
             return text.format(**kwargs)
@@ -126,14 +123,14 @@ def tr(key: str, **kwargs) -> str:
 
 
 def tr_warning(warning: str) -> str:
-    """把 mapping.py 产生的中文警告翻译为英文（中文界面原样返回）。"""
-    if _LANG == "zh":
+    """English warnings from mapping.py pass through; translated to Portuguese when the UI is pt."""
+    if _LANG != "pt":
         return warning
-    m = re.match(r"纹理混合模式\((.*)\)", warning)
+    m = re.match(r"Texture blend mode \((.*)\)", warning)
     if m:
-        inner = m.group(1).replace("回退Multiply", "falls back to Multiply")
-        return f"Texture blend mode ({inner})"
-    m = re.match(r"旋转控制源\(bVTy=(\d+) 未映射\)", warning)
+        inner = m.group(1).replace("falls back to Multiply", "recorre a Multiply")
+        return f"Modo de mesclagem de textura ({inner})"
+    m = re.match(r"Rotation control source \(bVTy=(\d+) not mapped\)", warning)
     if m:
-        return f"Rotation control source (bVTy={m.group(1)} not mapped)"
-    return _WARNINGS_EN.get(warning, warning)
+        return f"Fonte de controle de rotação (bVTy={m.group(1)} não mapeado)"
+    return _WARNINGS_PT.get(warning, warning)

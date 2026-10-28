@@ -1,9 +1,10 @@
-"""写出 Krita .kpp 预设文件。
+"""Write out Krita .kpp preset files.
 
-.kpp = PNG（200×200 预览）+ iTXt 块（keyword="preset"，zlib 压缩 XML）
-       + tEXt 块（keyword="version" = "5.0"）。
+A .kpp is a PNG (200x200 preview) + an iTXt chunk (keyword="preset", zlib-compressed XML)
+       + a tEXt chunk (keyword="version" = "5.0").
 
-手动构造 PNG 块，保证与 Krita 生成的 .kpp 结构一致。
+PNG chunks are constructed manually to guarantee a structure identical to
+the .kpp files Krita itself generates.
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ from PIL import Image
 
 
 def _chunk(ctype: bytes, payload: bytes) -> bytes:
-    """构造一个标准 PNG 块（长度 + 类型 + 数据 + CRC32）。"""
+    """Construct a standard PNG chunk (length + type + data + CRC32)."""
     return (
         struct.pack(">I", len(payload))
         + ctype
@@ -26,7 +27,7 @@ def _chunk(ctype: bytes, payload: bytes) -> bytes:
 
 
 def _itxt_chunk(keyword: str, text: str, compressed: bool = True) -> bytes:
-    """构造 iTXt 块（Krita 用它存预设 XML，keyword="preset"）。"""
+    """Construct an iTXt chunk (Krita uses it to store the preset XML, keyword="preset")."""
     if compressed:
         data = zlib.compress(text.encode("utf-8"), 9)
         flag = 1
@@ -44,13 +45,13 @@ def _itxt_chunk(keyword: str, text: str, compressed: bool = True) -> bytes:
 
 
 def _text_chunk(keyword: str, text: str) -> bytes:
-    """构造 tEXt 块（Krita 用它存 version="5.0"）。"""
+    """Construct a tEXt chunk (Krita uses it to store version="5.0")."""
     payload = keyword.encode("latin1") + b"\x00" + text.encode("utf-8")
     return _chunk(b"tEXt", payload)
 
 
 def render_tip_preview(gray: np.ndarray, size: int = 200) -> np.ndarray:
-    """把灰度蒙版（255=墨）渲染为白笔刷在透明底上的 RGBA 预览。"""
+    """Render a grayscale mask (255=ink) as a white brush on a transparent RGBA preview."""
     h, w = gray.shape
     scale = min(size / h, size / w)
     nw, nh = max(1, int(w * scale)), max(1, int(h * scale))
@@ -62,7 +63,7 @@ def render_tip_preview(gray: np.ndarray, size: int = 200) -> np.ndarray:
 
 
 def build_kpp(preset_xml: str, preview_rgba: np.ndarray) -> bytes:
-    """构造完整 .kpp 字节。preview_rgba 为 (h, w, 4) uint8 RGBA。"""
+    """Build the complete .kpp bytes. preview_rgba is (h, w, 4) uint8 RGBA."""
     h, w = preview_rgba.shape[:2]
     out = bytearray()
     out += b"\x89PNG\r\n\x1a\n"
@@ -73,7 +74,7 @@ def build_kpp(preset_xml: str, preview_rgba: np.ndarray) -> bytes:
     out += _itxt_chunk("preset", preset_xml, compressed=True)
     out += _text_chunk("version", "5.0")
 
-    # IDAT：每行前置 filter 字节 0
+    # IDAT: each scanline is prefixed with filter byte 0
     raw = bytearray()
     for y in range(h):
         raw.append(0)
